@@ -711,7 +711,9 @@ setMethod('xAdduct', c("character"), function(adduct){
        chrg <- sprinf("$s+", charge)
      }else if(charge < -1){
        chrg <- sprinf("$s-", abs(charge))
-     }else if(chrg == 0)
+     }else if(chrg == 0){
+
+     }
 
    }
 
@@ -730,7 +732,7 @@ setMethod('xAdduct', c("character"), function(adduct){
     sprintf('[%s]%s', a, b)
 })
 
-xAdduct(adduct = "[2M]+")
+# xAdduct(adduct = "[2M]+")
 # xFormula("C13H22O4", 'mz')
 
 # clean MSn -----------------------------------------------------------------------------------
