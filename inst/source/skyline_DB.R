@@ -77,7 +77,7 @@ msp_list <- parLapply(
 
 
 metaMsn_i <- new('metaMSn', MSn= msp_list)
-traTbl <- filterMSn(object = metaMsn_i, topX = 5, type = "local", cluster = cl)
+traTbl <- filterMSn(object = metaMsn_i, topX = 10, type = "local", cluster = cl)
 
 # cross ref. --------------------------------------------------------------
 traTbl_list <- traTbl %>%
