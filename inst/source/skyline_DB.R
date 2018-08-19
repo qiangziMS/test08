@@ -31,10 +31,10 @@ matchIdx_list <- as_tibble(matchIdx_list)
 initInfo_list <- as_tibble(initInfo_list)
 
 
+# load msp file -------------------------------------------------------------------------------
+
 file_raw <- system.file("DB/Plant.msp", package = "MRMlib")
 lib <- read_lines(file = file_raw)
-# lib_val <- lib[]
-# Name_idx <- grep(pattern = "BEGIN",ignore.case = F, fixed = T,x = lib)
 begin_idx <- grep(pattern = "BEGIN",ignore.case = F, fixed = T,x = lib)
 end_idx <- grep(pattern = "END",ignore.case = F, fixed = T,x = lib)
 
@@ -44,21 +44,9 @@ range_idx <-
            idx = seq_along(end_idx)) %>%
     split.data.frame(f=.$idx)
 
-
-
 # Parse .MSP database file to list ----------------------------------------
-require(parallel)
 
 cl <- makeCluster(8)
-preFilter_idx <- parLapply(cl, range_idx, mspPreFilter, lib_vct=lib) %>% unlist()
-
-preFilterTbl <- tibble(idx = seq_along(preFilter_idx),  splash = preFilter_idx) %>%
-  left_join(., initInfo_list, by = c("splash" = "splash10")) %>%
-  left_join(., hmdbInfo_list, by = c("initialInChIKey" = "InChIKey")) %>%
-  dplyr::filter(Polarity == "+") %>%
-  split.data.frame(f=.$Class)
-
-
 msp_list <-
     parLapply(
         cl,
@@ -90,7 +78,7 @@ msp_list <- parLapply(
 
 metaMsn_i <- new('metaMSn', MSn= msp_list)
 traTbl <- filterMSn(object = metaMsn_i, topX = 5, type = "local", cluster = cl)
-# traTbl <- traTbl %>% mutate(PrecursorMz = precursorMz)
+
 # cross ref. --------------------------------------------------------------
 traTbl_list <- traTbl %>%
     left_join(., initInfo_list, by = c("splash" = "splash10")) %>%
@@ -100,10 +88,8 @@ traTbl_list <- traTbl %>%
 
 xDB <- xMStoDB(ms = peak0, db = traTbl_list, tol = 20)
 
-
 skylineTra <-
-    toSkyline(infoTibble = xDB, deltaMz = 12) %>% unique() #%>%
-    dplyr::filter(`Precursor Adduct` == "[M+H]+")
+    toSkyline(infoTibble = xDB, deltaMz = 12) %>% unique()
 
 # write to skyline transition -----------------------------------------------------------------
 

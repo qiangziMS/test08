@@ -159,11 +159,9 @@ mspParser <- function(x = range_idx["1"],
                       nbTol = 0.8,
                       mz_tol = 0.01,
                       mz_only= T, ...) {
-    # source("F://R&D/Rscript/functions.R", echo = F)
   require(dplyr)
   require(stringi)
   require(MRMlib)
-
 
   x <- unlist(x)
     lib_val_x <- lib_vct[x[1]:x[2]]
@@ -319,128 +317,18 @@ setMethod('metaLink', c(object="metaMSn"), function(object, tag, ...){
 
 
 # load elements info ------------------------------------------------------
-elsTbl <-
-  read_table(
-    file = system.file("DB/ICIS_elements.els", package = "MRMlib"),
-    col_names = c("element", "mass", "proportion", "other"))
-monoMassTbl <-
-  elsTbl %>% arrange(element, desc(proportion))
-monoMass <-
-  monoMassTbl[!(duplicated(monoMassTbl$element)), ]
-elements <- monoMass$mass
-names(elements) <- monoMass$element
+# elsTbl <-
+#   read_table(
+#     file = system.file("DB/ICIS_elements.els", package = "MRMlib"),
+#     col_names = c("element", "mass", "proportion", "other"))
+# monoMassTbl <-
+#   elsTbl %>% arrange(element, desc(proportion))
+# monoMass <-
+#   monoMassTbl[!(duplicated(monoMassTbl$element)), ]
+# elements <- monoMass$mass
+# names(elements) <- monoMass$element
 
 
-setGeneric("xFormula", function(formulaRaw, elements, ret = NULL) standardGeneric("xFormula"))
-setMethod("xFormula", c(formulaRaw = "character"), function(formulaRaw, elements, ret) {
-  require(MRMlib)
-  require(tidyverse)
-  require(stringi)
-
-  if(!exists(x = 'elsTbl')){
-    elsTbl <-
-      read_table(
-        file = system.file("DB/ICIS_elements.els", package = "MRMlib"),
-        col_names = c("element", "mass", "proportion", "other"))
-    monoMassTbl <-
-      elsTbl %>% arrange(element, desc(proportion))
-    monoMass <-
-      monoMassTbl[!(duplicated(monoMassTbl$element)), ]
-    elements <- monoMass$mass
-    names(elements) <- monoMass$element
-  }
-
-
-    # patternX <-"(?<=[:upper:])(?=[:upper:])|(?<=[:digit:]|[+|-])(?=[:upper:])"
-    patternX <- "(?<!^)(?=[:upper:])"
-    # function ----------------------------------------------------------------
-      formula_tbl_x <-
-        formulaRaw[1] %>%
-        stri_extract(regex = "(?<=[\\[]).+(?=[\\]])") %>%
-        stri_split(., regex = "(?<=[:alnum:])(?=[-|+][:digit:]?)") %>% .[[1]] %>%
-        stri_split_regex(patternX)
-    #%>%
-    xList <- seq_along(formula_tbl_x) %>% as.list()
-    for (i in seq_along(formula_tbl_x)) {
-      x <- formula_tbl_x[[i]]
-      {
-        if (!stri_detect(x[1], regex = "^[-|+]")) {
-          if (stri_detect(x[1], regex = "^[:digit:]")) {
-            x[1] <- paste("+", x[1], sep = "")
-          } else if (stri_detect(x[1], regex = "^[-|+][:digit:]+")) {
-            x[1] <- x[1]
-          } else{
-            x <- c("+1", x)
-          }
-        } else if (x[1] == "+") {
-          x[1] <- "+1"
-        } else if (x[1] == "-") {
-          x[1] <- "-1"
-        }
-        mt <- stri_split(x[-1],
-                         regex = "(?<=[:alpha:])(?=[:digit:]|$)") %>%
-          do.call(rbind, .)
-        mt[mt == ""] <- 1
-        xList[[i]] <-
-          tibble(element = mt[, 1],
-                 number = as.numeric(mt[, 2]) * as.numeric(x[1]))
-      }
-# ) %>%
-#   do.call(bind_rows, .)
-    }
-
-        # lapply(.,
-        #   FUN = function(x) {
-        #     if (!stri_detect(x[1], regex = "^[-|+]")) {
-        #       if (stri_detect(x[1], regex = "^[:digit:]")) {
-        #         x[1] <- paste("+", x[1], sep = "")
-        #       } else if (stri_detect(x[1], regex = "^[-|+][:digit:]+")) {
-        #         x[1] <- x[1]
-        #       } else{
-        #         x <- c("+1", x)
-        #       }
-        #     } else if (x[1] == "+") {
-        #       x[1] <- "+1"
-        #     } else if (x[1] == "-") {
-        #       x[1] <- "-1"
-        #     }
-        #     mt <- stri_split(x[-1],
-        #                      regex = "(?<=[:alpha:])(?=[:digit:]|$)") %>%
-        #       do.call(rbind, .)
-        #     mt[mt == ""] <- 1
-        #     tibble(element = mt[, 1],
-        #            number = as.numeric(mt[, 2]) * as.numeric(x[1]))
-        #   }
-        # ) %>%
-    formula_tbl <-
-        bind_rows(xList) %>%
-        group_by(element) %>%
-        summarise(N = sum(number)) %>%
-        mutate(mz = N * elements[element]) %>%
-        dplyr::filter(N > 0)
-      cpdInfo <-
-        tibble(
-          formula = paste(
-            formula_tbl$element,
-            formula_tbl$N,
-            collapse = "",
-            sep = ""
-          ),
-          mz = sum(formula_tbl$mz)
-        )
-    # rm(formula_tbl)
-    # gc(verbose = F)
-    if(is.null(ret)){
-      return(cpdInfo)
-    }else if (ret == "formula") {
-        return(cpdInfo$formula)
-    } else if (ret == "mz") {
-        return(cpdInfo$mz)
-    }
-})
-# xFormula(formulaRaw = "[CH3-Cl]",ret = NULL, elements = elements)
-# xxx1 <- lapply(formulaRaw, xFormula, elements = elements, ret = NULL)
-#
 
 #' Filter product ions to MRM
 #'
@@ -513,8 +401,15 @@ setMethod("filterMSn", c(object = "metaMSn"),
 
 
 # to skyline traTable -------------------------------------------------------------------------
-
-
+#' Write to skyline traTable
+#'
+#' @param infoTibble DB infoTable from xMStoDB/filterMSn
+#' @param deltaMz delta mz with precursor mz
+#'
+#' @return transition list table of skyline
+#' @export NULL
+#'
+#' @examples NULL
 setGeneric("toSkyline", function(infoTibble, deltaMz) standardGeneric("toSkyline"))
 setMethod("toSkyline", c(infoTibble = "tbl"),
           function (infoTibble, deltaMz=12) {
@@ -646,97 +541,112 @@ xRule <- function(n) {
 #'
 #' @examples NULL
 xAdduct <- function(cls, adducts, formulas, polarities) {
-    adducts <-
-      adducts %>% stri_replace_all(., "", regex = "[^[:alnum:]|[-|+|\\]|\\[]]")
-    adducts[adducts %in% c("", "NA", NA)] <-
-      paste("M", polarities[adducts %in% c("", "NA", NA)], sep = "")
+  # load elements info ------------------------------------------------------
+  elsTbl <-
+    read_table(
+      file = system.file("DB/ICIS_elements.els", package = "MRMlib"),
+      col_names = c("element", "mass", "proportion", "other")
+    )
+  monoMassTbl <-
+    elsTbl %>% arrange(element, desc(proportion))
+  monoMass <-
+    monoMassTbl[!(duplicated(monoMassTbl$element)),]
+  elements <- monoMass$mass
+  names(elements) <- monoMass$element
 
-    fml <-
-      stri_extract(adducts, regex = "[:alnum:]+.*[:alnum:]|[:digit:]*[M]")
-    chr <-
-      stri_extract_last_regex(adducts, "[:digit:]*[-|+](?=$|[\\]])")
-    pol <- polarities
-    rule3 <- xRule(n = 3)
-    ruleR <- rule3  %>% dplyr::filter(keyR)
 
-    formula0 <- formulas %>% stri_replace_all(., "", regex = "[-|+]")
-    parLapply(cls, seq_along(fml), function(x) {
-      require(MRMlib)
-      require(tidyverse)
-      require(stringi)
-      M <- stri_extract(fml[x], regex = '[:digit:]*[M]')
-      A <-
-        stri_extract_all(fml[x], regex = '[+|-][:digit:]*[:alnum:]+')[[1]]
-      if (is.na(A)[1]) {
-        if (chr[x] %in% c("-", "+")) {
-          chrg <- chr[x]
-        } else {
-          chrg <- pol[x]
-        }
-      } else{
-        charge <-
-          rule3 %>%
-          filter(key %in% A | keyF %in% A) %>%
-          .$sign %>%
-          sum(., na.rm = T)
-        if (charge == 1) {
-          chrg <- "+"
-        } else if (charge == -1) {
-          chrg <- "-"
-        } else if (charge > 1) {
-          chrg <- sprintf("%s+", charge)
-        } else if (charge < -1) {
-          chrg <- sprintf("%s-", abs(charge))
-        } else if (charge == 0) {
-          chrg <- ""
-        }
+  adducts <-
+    adducts %>% stri_replace_all(., "", regex = "[^[:alnum:]|[-|+|\\]|\\[]]")
+  adducts[adducts %in% c("", "NA", NA)] <-
+    paste("M", polarities[adducts %in% c("", "NA", NA)], sep = "")
+
+  fml <-
+    stri_extract(adducts, regex = "[:alnum:]+.*[:alnum:]|[:digit:]*[M]")
+  chr <-
+    stri_extract_last_regex(adducts, "[:digit:]*[-|+](?=$|[\\]])")
+  pol <- polarities
+  rule3 <- xRule(n = 3)
+  ruleR <- rule3  %>% dplyr::filter(keyR)
+
+  formula0 <-
+    formulas %>% stri_replace_all(., "", regex = "[-|+]")
+  parLapply(cls, seq_along(fml), function(x) {
+    require(MRMlib)
+    require(tidyverse)
+    require(stringi)
+    M <- stri_extract(fml[x], regex = '[:digit:]*[M]')
+    A <-
+      stri_extract_all(fml[x], regex = '[+|-][:digit:]*[:alnum:]+')[[1]]
+    if (is.na(A)[1]) {
+      if (chr[x] %in% c("-", "+")) {
+        chrg <- chr[x]
+      } else {
+        chrg <- pol[x]
       }
-
-      MAr <- MA <-
-        sprintf("[%s]%s", paste(na.omit(c(M, A)), collapse = "", sep = ""), chrg)
-      Ar <- A
-      for (a in seq_along(ruleR$key)) {
-        MAr <- stri_replace_all(MAr, ruleR$keyF[a], fixed = ruleR$key[a])
-        Ar <-
-          stri_replace_all(Ar, ruleR$keyF[a], fixed = ruleR$key[a])
+    } else{
+      charge <-
+        rule3 %>%
+        filter(key %in% A | keyF %in% A) %>%
+        .$sign %>%
+        sum(., na.rm = T)
+      if (charge == 1) {
+        chrg <- "+"
+      } else if (charge == -1) {
+        chrg <- "-"
+      } else if (charge > 1) {
+        chrg <- sprintf("%s+", charge)
+      } else if (charge < -1) {
+        chrg <- sprintf("%s-", abs(charge))
+      } else if (charge == 0) {
+        chrg <- ""
       }
-      Mr <- stri_replace(M, formula0[x], fixed = "M")
+    }
 
-      FormulaL <-
-        sprintf("+%s%s", Mr, Ar) %>%
-        stri_replace_all(., "1", regex = "(?<=[-|+])(?=[:upper:])") %>%
-        stri_split(., regex = "(?<=[:alnum:])(?=[-|+][:digit:]?)") %>% .[[1]] %>%
-        stri_split_regex("(?=[:upper:])")
+    MAr <- MA <-
+      sprintf("[%s]%s", paste(na.omit(c(M, A)), collapse = "", sep = ""), chrg)
+    Ar <- A
+    for (a in seq_along(ruleR$key)) {
+      MAr <- stri_replace_all(MAr, ruleR$keyF[a], fixed = ruleR$key[a])
+      Ar <-
+        stri_replace_all(Ar, ruleR$keyF[a], fixed = ruleR$key[a])
+    }
+    Mr <- stri_replace(M, formula0[x], fixed = "M")
 
-      countTbl <-
-        lapply(FormulaL, function(y) {
-          mt <-
-            stri_split(y[-1], regex = "(?<=[:alpha:])(?=[:digit:]|$)") %>%
-            do.call(rbind, .)
-          mt[mt == ""] <- 1
-          tibble(element = mt[, 1],
-                 number = as.numeric(mt[, 2]) * as.numeric(y[1]))
-        }) %>%
-        bind_rows() %>%
-        group_by(element) %>%
-        summarise(N = sum(number)) %>%
-        mutate(mz = N * elements[element]) %>%
-        dplyr::filter(N > 0)
+    FormulaL <-
+      sprintf("+%s%s", Mr, Ar) %>%
+      stri_replace_all(., "1", regex = "(?<=[-|+])(?=[:upper:])") %>%
+      stri_split(., regex = "(?<=[:alnum:])(?=[-|+][:digit:]?)") %>% .[[1]] %>%
+      stri_split_regex("(?=[:upper:])")
 
-      tibble(
-        Adduct0 = fml[x],
-        Adduct1 = MA,
-        AdductR = MAr,
-        pFormula = paste(
-          countTbl$element,
-          countTbl$N,
-          collapse = "",
-          sep = ""
-        ),
-        PrecursorMz = sum(countTbl$mz)
-      )
-    }) %>% bind_rows()
-  }
+    countTbl <-
+      lapply(FormulaL, function(y) {
+        mt <-
+          stri_split(y[-1], regex = "(?<=[:alpha:])(?=[:digit:]|$)") %>%
+          do.call(rbind, .)
+        mt[mt == ""] <- 1
+        tibble(element = mt[, 1],
+               number = as.numeric(mt[, 2]) * as.numeric(y[1]))
+      }) %>%
+      bind_rows() %>%
+      group_by(element) %>%
+      summarise(N = sum(number)) %>%
+      mutate(mz = N * elements[element]) %>%
+      dplyr::filter(N > 0)
+
+    tibble(
+      Adduct0 = fml[x],
+      Adduct1 = MA,
+      AdductR = MAr,
+      pFormula = paste(
+        countTbl$element,
+        countTbl$N,
+        collapse = "",
+        sep = ""
+      ),
+      PrecursorMz = sum(countTbl$mz)
+    )
+  }) %>% bind_rows()
+}
 
 
 # clean MSn -----------------------------------------------------------------------------------
@@ -820,6 +730,16 @@ mspPreFilter <- function(x = range_idx["1"], lib_vct = lib) {
 
 # intersection of full-MS and Library ---------------------------------------------------------
 
+#' Title
+#'
+#' @param ms cross ms to db by ppm
+#' @param db db tibble
+#' @param tol mz tolerance ppm
+#'
+#' @return filtered db tibble
+#' @export NULL
+#'
+#' @examples NULL
 setGeneric("xMStoDB", function(ms,db,tol) standardGeneric("xMStoDB"))
 setMethod("xMStoDB", c(ms = "data.frame", db = "data.frame", tol = "numeric"), function(ms,db,tol){
     ms <- ms %>% as_tibble()
@@ -832,8 +752,6 @@ setMethod("xMStoDB", c(ms = "data.frame", db = "data.frame", tol = "numeric"), f
         lapply(dbmz, function(d) {
             abs(d - msmz)/d * 1000000
         }) %>% do.call(rbind, .)
-
-
     rtMatrix <-
         matrix(data = rep(ms$rt, length(dbmz)),
                nrow = length(dbmz),
@@ -859,16 +777,9 @@ setMethod("xMStoDB", c(ms = "data.frame", db = "data.frame", tol = "numeric"), f
     ) %>% bind_rows() %>% left_join(., db0 %>% select(-RTs,), by = "splash")
 })
 
-
-# a <- 1:9
-# b <- rep(5.1,9)
-
-
 # summary mspList ---------------------------------------------------------
-
 setGeneric("summary", function(x = 'list') standardGeneric("summary"))
 
-# setMethod("summary", c(x = ))
 
 
 
