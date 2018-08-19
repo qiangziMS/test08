@@ -2,6 +2,8 @@ require(tidyverse)
 require(stringi)
 require(ChemmineR)
 require(MSnbase)
+require(MRMlib)
+
 env <- new.env()
 hmdbInfo <- load(system.file("DB/hmdbInfo.QT", package = "MRMlib"), env)
 matchIdx <- load(system.file("DB/initalMatch2HmdbIndex.QT", package = "MRMlib"), env)
@@ -57,8 +59,6 @@ preFilterTbl <- tibble(idx = seq_along(preFilter_idx),  splash = preFilter_idx) 
   split.data.frame(f=.$Class)
 
 
-# preFilter_idx[1:3]
-
 msp_list <-
     parLapply(
         cl,
@@ -66,7 +66,7 @@ msp_list <-
         mspParser,
         lib_vct = lib,
         nbTol = 0.8,
-        mz_tol = 0.01
+        mz_tol = 0.015
     )
 
 
@@ -87,22 +87,10 @@ msp_list <- parLapply(
   }
 )
 
-# git config --global user.email "qiangziMS@gmail.com"
-# git config --global user.name "qiangziMS"
-
 
 metaMsn_i <- new('metaMSn', MSn= msp_list)
-
-traTbl <- filterMSn(metaMsn_i, topX = 5, type = "local", deltaMz = 12, newRule = NULL, cluster = cl)
-# traTbl_s
-traTbl_s <- traTbl %>% dplyr::filter(stri_detect(Adduct, regex = "[NA]NA"))
-
-idx <- traTbl_s$splash %>% match(., preFilter_idx)
-
-msp_list_NA <- msp_list[idx]
-
-adduct <- table(traTbl$Adduct0)
-# tra_dup <- traTbl_list[traTbl_list %>% duplicated() %>% which(),]
+traTbl <- filterMSn(object = metaMsn_i, topX = 5, type = "local", cluster = cl)
+# traTbl <- traTbl %>% mutate(PrecursorMz = precursorMz)
 # cross ref. --------------------------------------------------------------
 traTbl_list <- traTbl %>%
     left_join(., initInfo_list, by = c("splash" = "splash10")) %>%
@@ -110,27 +98,20 @@ traTbl_list <- traTbl %>%
     dplyr::filter(ExactMass-PrecursorMz < 2) %>%
     dplyr::filter(Polarity == "+")
 
-xDB <- xMStoDB(ms = as_tibble(peak0),db = traTbl_list,tol = 20)
+xDB <- xMStoDB(ms = peak0, db = traTbl_list, tol = 20)
 
-
-xTra <- inner_join(x = xDB, y = db0)
 
 skylineTra <-
-    toSkyline(infoTibble = xTra, deltaMz = 12) %>%
-    unique() %>%
+    toSkyline(infoTibble = xDB, deltaMz = 12) %>% unique() #%>%
     dplyr::filter(`Precursor Adduct` == "[M+H]+")
 
-
+# write to skyline transition -----------------------------------------------------------------
 
 write_csv(
     skylineTra,
     append = F,
     path = sprintf("./MRM_transition_list_%s.csv", Sys.Date())
 )
-
-stopCluster(cl)
-
-
 
 
 

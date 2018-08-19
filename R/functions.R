@@ -3,6 +3,7 @@ require(stringi)
 require(ChemmineR)
 require(MSnbase)
 require(parallel)
+# require(MRMlib)
 # Get isotope proportion list ---------------------------------------------
 
 
@@ -288,7 +289,7 @@ setMethod("fixSDFset", c(object = "SDF"), function(object) {
         stri_extract(regex = "(?<=[:alpha:]{1,8}[=]).+$")
     object@datablock <- datablock[idx + 1]
     names(object@datablock) <-
-        stri_extract(str = datablock[idx], regex = "(?<=^> <).+(?=>$)")
+        stri_extract(str = datablock, regex = "(?<=^> <).+(?=>$)")
     object
 })
 setMethod("fixSDFset", c(object = "SDFset"), function(object) {
@@ -316,72 +317,130 @@ setMethod('metaLink', c(object="metaMSn"), function(object, tag, ...){
     return(tagMatch_idx)
 })
 
-setGeneric("xFormula", function(formulaRaw, return = NULL) standardGeneric("xFormula"))
-setMethod("xFormula", c(formulaRaw = "character"), function(formulaRaw, return) {
-    # load elements info ------------------------------------------------------
+
+# load elements info ------------------------------------------------------
+elsTbl <-
+  read_table(
+    file = system.file("DB/ICIS_elements.els", package = "MRMlib"),
+    col_names = c("element", "mass", "proportion", "other"))
+monoMassTbl <-
+  elsTbl %>% arrange(element, desc(proportion))
+monoMass <-
+  monoMassTbl[!(duplicated(monoMassTbl$element)), ]
+elements <- monoMass$mass
+names(elements) <- monoMass$element
+
+
+setGeneric("xFormula", function(formulaRaw, elements, ret = NULL) standardGeneric("xFormula"))
+setMethod("xFormula", c(formulaRaw = "character"), function(formulaRaw, elements, ret) {
+  require(MRMlib)
+  require(tidyverse)
+  require(stringi)
+
+  if(!exists(x = 'elsTbl')){
     elsTbl <-
-        read_table(
+      read_table(
         file = system.file("DB/ICIS_elements.els", package = "MRMlib"),
         col_names = c("element", "mass", "proportion", "other"))
     monoMassTbl <-
-        elsTbl %>% arrange(element, desc(proportion))
+      elsTbl %>% arrange(element, desc(proportion))
     monoMass <-
-        monoMassTbl[!(duplicated(monoMassTbl$element)), ]
+      monoMassTbl[!(duplicated(monoMassTbl$element)), ]
     elements <- monoMass$mass
     names(elements) <- monoMass$element
+  }
 
+
+    # patternX <-"(?<=[:upper:])(?=[:upper:])|(?<=[:digit:]|[+|-])(?=[:upper:])"
+    patternX <- "(?<!^)(?=[:upper:])"
     # function ----------------------------------------------------------------
-    patternX <-
-        "(?<=[:upper:])(?=[:upper:])|(?<=[:digit:]|[+|-])(?=[:upper:])"
-    cpdInfo <-
-        lapply(formulaRaw,
-               function(formulaRaw_i) {
-                   formula_tbl <-
-                       formulaRaw_i %>%
-                       stri_extract(regex = "(?<=\\[|^)([:alnum:]|[-|+])+(?=\\]|$)") %>%
-                       stri_split(., regex = "(?=[-|+][:digit:]?)") %>% .[[1]] %>%
-                       stri_split_regex(patternX) %>%
-                       lapply(
-                           FUN = function(x) {
-                               if (!stri_detect(x[1], regex = "^[-|+]"))
-                                   x <- c("+1", x)
-                               if (x[1] == "+")
-                                   x[1] <- "+1"
-                               if (x[1] == "-")
-                                   x[1] <- "-1"
-                               mt <- stri_split(x[-1],
-                                                regex = "(?<=[:alpha:])(?=[:digit:]|$)") %>%
-                                   do.call(rbind, .)
-                               mt[mt == ""] <- 1
-                               tibble(element = mt[, 1],
-                                      number = as.numeric(mt[, 2]) * as.numeric(x[1]))
-                           }
-                       ) %>%
-                       do.call(bind_rows, .) %>%
-                       group_by(element) %>%
-                       summarise(N = sum(number)) %>%
-                       mutate(mz = N * elements[element]) %>%
-                       dplyr::filter(N > 0)
-                   tibble(
-                       formula = paste(
-                           formula_tbl$element,
-                           formula_tbl$N,
-                           collapse = "",
-                           sep = ""
-                       ),
-                       mz = sum(formula_tbl$mz)
-                   )
-               }) %>% bind_rows()
-    if (return == "formula") {
+      formula_tbl_x <-
+        formulaRaw[1] %>%
+        stri_extract(regex = "(?<=[\\[]).+(?=[\\]])") %>%
+        stri_split(., regex = "(?<=[:alnum:])(?=[-|+][:digit:]?)") %>% .[[1]] %>%
+        stri_split_regex(patternX)
+    #%>%
+    xList <- seq_along(formula_tbl_x) %>% as.list()
+    for (i in seq_along(formula_tbl_x)) {
+      x <- formula_tbl_x[[i]]
+      {
+        if (!stri_detect(x[1], regex = "^[-|+]")) {
+          if (stri_detect(x[1], regex = "^[:digit:]")) {
+            x[1] <- paste("+", x[1], sep = "")
+          } else if (stri_detect(x[1], regex = "^[-|+][:digit:]+")) {
+            x[1] <- x[1]
+          } else{
+            x <- c("+1", x)
+          }
+        } else if (x[1] == "+") {
+          x[1] <- "+1"
+        } else if (x[1] == "-") {
+          x[1] <- "-1"
+        }
+        mt <- stri_split(x[-1],
+                         regex = "(?<=[:alpha:])(?=[:digit:]|$)") %>%
+          do.call(rbind, .)
+        mt[mt == ""] <- 1
+        xList[[i]] <-
+          tibble(element = mt[, 1],
+                 number = as.numeric(mt[, 2]) * as.numeric(x[1]))
+      }
+# ) %>%
+#   do.call(bind_rows, .)
+    }
+
+        # lapply(.,
+        #   FUN = function(x) {
+        #     if (!stri_detect(x[1], regex = "^[-|+]")) {
+        #       if (stri_detect(x[1], regex = "^[:digit:]")) {
+        #         x[1] <- paste("+", x[1], sep = "")
+        #       } else if (stri_detect(x[1], regex = "^[-|+][:digit:]+")) {
+        #         x[1] <- x[1]
+        #       } else{
+        #         x <- c("+1", x)
+        #       }
+        #     } else if (x[1] == "+") {
+        #       x[1] <- "+1"
+        #     } else if (x[1] == "-") {
+        #       x[1] <- "-1"
+        #     }
+        #     mt <- stri_split(x[-1],
+        #                      regex = "(?<=[:alpha:])(?=[:digit:]|$)") %>%
+        #       do.call(rbind, .)
+        #     mt[mt == ""] <- 1
+        #     tibble(element = mt[, 1],
+        #            number = as.numeric(mt[, 2]) * as.numeric(x[1]))
+        #   }
+        # ) %>%
+    formula_tbl <-
+        bind_rows(xList) %>%
+        group_by(element) %>%
+        summarise(N = sum(number)) %>%
+        mutate(mz = N * elements[element]) %>%
+        dplyr::filter(N > 0)
+      cpdInfo <-
+        tibble(
+          formula = paste(
+            formula_tbl$element,
+            formula_tbl$N,
+            collapse = "",
+            sep = ""
+          ),
+          mz = sum(formula_tbl$mz)
+        )
+    # rm(formula_tbl)
+    # gc(verbose = F)
+    if(is.null(ret)){
+      return(cpdInfo)
+    }else if (ret == "formula") {
         return(cpdInfo$formula)
-    } else if (return == "mz") {
+    } else if (ret == "mz") {
         return(cpdInfo$mz)
-    } else {
-        return(cpdInfo)
     }
 })
-
-
+# xFormula(formulaRaw = "[CH3-Cl]",ret = NULL, elements = elements)
+# xxx1 <- lapply(formulaRaw, xFormula, elements = elements, ret = NULL)
+#
 
 #' Filter product ions to MRM
 #'
@@ -389,58 +448,42 @@ setMethod("xFormula", c(formulaRaw = "character"), function(formulaRaw, return) 
 #' @param topX select top X product ions
 #' @param ... NOT used
 #' @param type local/...
-#' @param newRule adducts rule
+#' @param cluster
 #'
-#' @return Tibble of products and info
+#' @return Tibble of products and info (infoTibble)
 #' @export NULL
 #'
 #' @examples NULL
 setGeneric("filterMSn",
-           function(object,topX,type,newRule,cluster,...) standardGeneric("filterMSn"))
+           function(object,topX,type,cluster,...) standardGeneric("filterMSn"))
 
 setMethod("filterMSn", c(object = "metaMSn"),
-          function(object,topX=5,type="local",newRule = NULL,cluster = NULL,...) {
-
+          function(object,topX=5,type="local",cluster = cl,...) {
             if (type == "local") {
               .fun <- function(objList) {
-                # source("F://R&D/Rscript/functions.R", echo = F)
                 require(MRMlib)
                 require(tidyverse)
                 require(stringi)
-                # require(parallel)
 
-                dplyr::filter(objList$MSn,!iso1 &
-                                !iso2 & !iso3) %>%
+                dplyr::filter(objList$MSn,!iso1 & !iso2 & !iso3) %>%
                   dplyr::select(mz, intensity) %>%
                   dplyr::mutate(
                     splash = objList$id,
                     Rank = rank(-intensity, ties.method = "first"),
-                    Adduct = ifelse(
-                      is.null(objList$precursorType),
-                      NA,
-                      xAdduct(objList$precursorType)
-                    ),
-                    Adduct0 = objList$precursorType,
+                    Adduct0 = ifelse(is.null(objList$precursorType),
+                                     NA,objList$precursorType),
                     Polarity = ifelse(is.null(objList$polarity),
-                                      NA, objList$polarity),
+                                      NA,objList$polarity),
                     ExactMass = ifelse(is.null(objList$exact_mass),
-                                       NA, objList$exact_mass) %>% as.numeric(),
+                                       NA,objList$exact_mass) %>% as.numeric(),
                     Formula = ifelse(is.null(objList$formula),
-                                     NA, objList$formula),
-                    CE = ifelse(
-                      is.null(objList$collisionEnergy),
-                      NA,
-                      objList$collisionEnergy
-                    ),
-                    InstrumentType = ifelse(
-                      is.null(objList$instrument_type),
-                      NA,
-                      objList$instrument_type
-                    )
+                                     NA,objList$formula),
+                    CE = ifelse(is.null(objList$collisionEnergy),
+                                NA,objList$collisionEnergy),
+                    InstrumentType = ifelse(is.null(objList$instrument_type),
+                                            NA,objList$instrument_type)
                   ) %>% as_tibble()
-                # cat("----",'\n')
               }
-              # object <- metaMsn_i
 
               if (is.null(cluster)) {
                 infoTibble <-
@@ -448,131 +491,28 @@ setMethod("filterMSn", c(object = "metaMSn"),
                   do.call(bind_rows, args = .) %>%
                   dplyr::filter(Rank <= topX)
               } else{
-                # clt <- parallel::makeCluster(cluster)
-                cat("cluster starting ...\n")
+                cat("step 1 start ...\n")
                 infoTibble <-
                   parallel::parLapply(cluster, object@MSn, .fun) %>%
                   do.call(bind_rows, args = .) %>%
                   dplyr::filter(Rank <= topX)
-                # parallel::stopCluster(clt)
-                cat("cluster stopping ...\n")
+                cat("step 1 done ...\n")
               }
-
-            } else{
-              tagMatchClass <-
-                metaLink(object = object, tag = "Class")
-              tagMatchSubclass <-
-                metaLink(object = object, tag = "Subclass")
-              tagMatchSuperclass <-
-                metaLink(object = object, tag = "Superclass")
-
-              NAImputation <- c(Adduct = "", CE = 30)
-              infoTibble <-
-                lapply(
-                  object@MSn,
-                  FUN = function(objList) {
-                    dplyr::filter(objList$MSn,!iso1 & !iso2 & !iso3) %>%
-                      dplyr::select(mz, intensity) %>%
-                      dplyr::mutate(
-                        Rank = rank(-intensity, ties.method = "first"),
-                        InChIKey = ifelse(is.null(objList$InChIKey),
-                                          NA, objList$InChIKey),
-                        Name = ifelse(is.null(objList$Name),
-                                      NA, objList$Name),
-                        Adduct = ifelse(
-                          is.null(objList$Precursor_type),
-                          NAImputation[["Adduct"]],
-                          objList$Precursor_type
-                        ),
-                        PrecursorMz = ifelse(is.null(objList$PrecursorMZ),
-                                             NA,
-                                             objList$PrecursorMZ) %>% as.numeric(),
-                        DeltaMz = PrecursorMz - mz,
-                        Polarity = ifelse(is.null(objList$Ion_mode),
-                                          NA, objList$Ion_mode),
-                        msLevel = ifelse(
-                          is.null(objList$Spectrum_type),
-                          NA,
-                          objList$Spectrum_type
-                        ),
-                        ExactMass = ifelse(is.null(objList$ExactMass),
-                                           NA,
-                                           objList$ExactMass) %>% as.numeric(),
-                        Formula = ifelse(is.null(objList$Formula),
-                                         NA, objList$Formula),
-                        CE = ifelse(
-                          is.null(objList$Collision_energy),
-                          NAImputation[["CE"]],
-                          objList$Collision_energy
-                        ) ,
-                        InstrumentType = ifelse(
-                          is.null(objList$Instrument_type),
-                          NA,
-                          objList$Instrument_type
-                        ),
-                        Class = ifelse(is.na(tagMatchClass[InChIKey]),
-                                       "Unknown", tagMatchClass[InChIKey]),
-                        Subclass = ifelse(is.na(tagMatchSubclass[InChIKey]),
-                                          "Unknown",
-                                          tagMatchSubclass[InChIKey]),
-                        Superclass = ifelse(
-                          is.na(tagMatchSuperclass[InChIKey]),
-                          "Unknown",
-                          tagMatchSuperclass[InChIKey]
-                        )
-                      ) %>% as_tibble()
-                  }
-                ) %>%
-                do.call(bind_rows, args = .) %>%
-                dplyr::filter(Rank <= topX &
-                                msLevel == "MS2" &
-                                DeltaMz > deltaMz)
             }
-
-            rule <- c(FA = 'CH2O2', DMSO = "C2H6OS")
-            rule <- c(rule, newRule[!(newRule %in% rule)])
-
-            # for (a in names(rule)) {
-            #   infoTibble <-
-            #     infoTibble %>%
-            #     mutate(Adduct0 = stri_replace_all(
-            #       Adduct,
-            #       rule[a],
-            #       regex = sprintf("(?<=[-|+][:digit:]?)%s(?=[-|+]?)", a)
-            #     ))
-            # }
-            # cat("replace done ...\n")
-            # clt <- parallel::makeCluster(cluster)
-            # system.time(
-            # infoList <-
-            #   infoTibble %>%
-            #     split.data.frame(f = seq(nrow(.))) %>%
-            #     parallel::parLapply(
-            #       cl = cluster,
-            #       X = .,
-            #       fun = function(x) {
-            #         require(tidyverse)
-            #         require(stringi)
-            #         require(MRMlib)
-            #         x %>%
-            #           mutate(Formula0 =
-            #                    stri_replace_all(Formula, "", regex = "[-|+]+$")) %>%
-            #           mutate(pFormula =
-            #                    stri_replace_all(Adduct0,
-            #                                     Formula0,
-            #                                     regex = "M(?=[-|+]?)")) #%>%
-            #                    # xFormula(return = "formula")) #%>%
-            #           # mutate(PrecursorMz =
-            #           #          xFormula(pFormula, return = "mz")) %>%
-            #           # mutate(DeltaMz = PrecursorMz - mz)
-            #       }
-            #     )
-            #   # )
-            # # parallel::stopCluster(clt)
-            # infoList %>% bind_rows()
-            infoTibble
+            cat("step 2 start ...\n")
+            xAdduct(
+                cls = cluster,
+                formulas = infoTibble$Formula,
+                adducts = infoTibble$Adduct0,
+                polarities = infoTibble$Polarity
+              ) %>%
+              bind_cols(infoTibble, .) %>%
+              mutate(DeltaMz = PrecursorMz - mz, RTs = NA)
           })
 
+
+
+# to skyline traTable -------------------------------------------------------------------------
 
 
 setGeneric("toSkyline", function(infoTibble, deltaMz) standardGeneric("toSkyline"))
@@ -596,8 +536,8 @@ setMethod("toSkyline", c(infoTibble = "tbl"),
                       `Note` = splash,
                       `Molecule List Name` = Class,
                       `Precursor Name` = initialName,
-                      `Precursor Formula` = Formula0,
-                      `Precursor Adduct` = Adduct,
+                      `Precursor Formula` = Formula,
+                      `Precursor Adduct` = Adduct1,
                       `Precursor Charge` = chargeRule[Polarity],
                       `Precursor m/z` = PrecursorMz,
                       `Product m/z` = mz,
@@ -638,18 +578,22 @@ setMethod("toSkyline", c(infoTibble = "tbl"),
 # set rules ---------------------------------------------------------------
 
 xRule <- function(n) {
-  neg <- c('Cl', 'CHO2', 'HCOO','CH3COO', 'CH3CO2')
-  negF <- c('Cl', 'CHO2', 'HCOO','CH3COO', 'CH3CO2')
+  neg <- c('Cl', 'CL', 'CHO2', 'HCOO','CH3COO', 'CH3CO2')
+  negF <- c('Cl', 'CL', 'CHO2', 'HCOO','CH3COO', 'CH3CO2')
+  negR <- c(F,F,F,F,F,F)
 
-  pos <- c('H','Na','K','NH4')
-  posF <- c('H','Na','K','NH4')
+  pos <- c('H','Na', 'NA','K','NH4')
+  posF <- c('H','Na', 'NA', 'K','NH4')
+  posR <- c(F,F,F,F,F)
 
   neu <- c("H2O", "FA" ,'DMSO', "ACN")
   neuF <- c("H2O", "CH2O2" ,'C2H6OS', "CNH")
+  neuR <- c(F,T,T,T)
 
   ruleTbl <- tibble(
     key = c(neg, pos, neu),
     keyF = c(negF, posF, neuF),
+    keyR = c(negR, posR, neuR),
     sign = c(rep(-1, length(neg)), rep(1, length(pos)), rep(0, length(neu)))
   )
   if (n == 1) {
@@ -661,79 +605,139 @@ xRule <- function(n) {
           mutate(
             key = paste(x, key, sep = ""),
             keyF = paste(x, keyF, sep = ""),
+            keyR = keyR,
             sign = sign * x
           )
       }) %>% bind_rows(ruleTbl, .) %>%
         mutate(
           key = paste("+", key, sep = ""),
-          keyF = paste("+", keyF, sep = "")
+          keyF = paste("+", keyF, sep = ""),
+          keyR = keyR
         ),
       lapply(2:n, function(x) {
         ruleTbl %>%
           mutate(
             key = paste(x, key, sep = ""),
             keyF = paste(x, keyF, sep = ""),
+            keyR = keyR,
             sign = sign * -x
           )
-      }) %>% bind_rows(ruleTbl, .) %>%
+      }) %>% bind_rows(ruleTbl %>% mutate(sign = sign * -1), .) %>%
         mutate(
           key = paste("-", key, sep = ""),
-          keyF = paste("-", keyF, sep = "")
+          keyF = paste("-", keyF, sep = ""),
+          keyR = keyR
         )
     )
   }
 }
 
-# adduct <- c("[M-H]",'M-H-',"[2M+NH4-]2-","2M-2")
-setGeneric("xAdduct", function(adduct) standardGeneric('xAdduct'))
-setMethod('xAdduct', c("character"), function(adduct){
-  adduct <- table(traTbl$Adduct0) %>% names()
 
- fml <- stri_extract(adduct, regex="[:alnum:]+.*[:alnum:]|[:digit:]*[M]")
- chr <- stri_extract_last_regex(adduct, ".")
+# xAdduct g function --------------------------------------------------------------------------
+#' calculate adduct formula and mz
+#'
+#' @param cls parallel cluster object
+#' @param adducts vector of adduct
+#' @param formulas vector of formula
+#' @param polarities vector of polarity
+#'
+#' @return tibble with 5 columns
+#' @export NULL
+#'
+#' @examples NULL
+xAdduct <- function(cls, adducts, formulas, polarities) {
+    adducts <-
+      adducts %>% stri_replace_all(., "", regex = "[^[:alnum:]|[-|+|\\]|\\[]]")
+    adducts[adducts %in% c("", "NA", NA)] <-
+      paste("M", polarities[adducts %in% c("", "NA", NA)], sep = "")
 
+    fml <-
+      stri_extract(adducts, regex = "[:alnum:]+.*[:alnum:]|[:digit:]*[M]")
+    chr <-
+      stri_extract_last_regex(adducts, "[:digit:]*[-|+](?=$|[\\]])")
+    pol <- polarities
+    rule3 <- xRule(n = 3)
+    ruleR <- rule3  %>% dplyr::filter(keyR)
 
- rule3 <- xRule(n = 3)
+    formula0 <- formulas %>% stri_replace_all(., "", regex = "[-|+]")
+    parLapply(cls, seq_along(fml), function(x) {
+      require(MRMlib)
+      require(tidyverse)
+      require(stringi)
+      M <- stri_extract(fml[x], regex = '[:digit:]*[M]')
+      A <-
+        stri_extract_all(fml[x], regex = '[+|-][:digit:]*[:alnum:]+')[[1]]
+      if (is.na(A)[1]) {
+        if (chr[x] %in% c("-", "+")) {
+          chrg <- chr[x]
+        } else {
+          chrg <- pol[x]
+        }
+      } else{
+        charge <-
+          rule3 %>%
+          filter(key %in% A | keyF %in% A) %>%
+          .$sign %>%
+          sum(., na.rm = T)
+        if (charge == 1) {
+          chrg <- "+"
+        } else if (charge == -1) {
+          chrg <- "-"
+        } else if (charge > 1) {
+          chrg <- sprintf("%s+", charge)
+        } else if (charge < -1) {
+          chrg <- sprintf("%s-", abs(charge))
+        } else if (charge == 0) {
+          chrg <- ""
+        }
+      }
 
- lapply(fml, function(x){
-   M <- stri_extract(x, regex = '[:digit:]*[M]')
-   A <- stri_extract_all(x, regex = '[+|-][:digit:]*[:alnum:]+')[[1]]
-   if(is.na(A)){
-     charge <- stri_extract_last(x, regex = "[:digit:]?[-|+][:digit:]?")
+      MAr <- MA <-
+        sprintf("[%s]%s", paste(na.omit(c(M, A)), collapse = "", sep = ""), chrg)
+      Ar <- A
+      for (a in seq_along(ruleR$key)) {
+        MAr <- stri_replace_all(MAr, ruleR$keyF[a], fixed = ruleR$key[a])
+        Ar <-
+          stri_replace_all(Ar, ruleR$keyF[a], fixed = ruleR$key[a])
+      }
+      Mr <- stri_replace(M, formula0[x], fixed = "M")
 
-   }else{
-     charge <- rule3 %>% filter(key %in% A|keyF %in% A) %>% .$sign %>% sum(., na.rm = T)
-     if(charge == 1) {
-       chrg <- "+"
-     }else if(charge == -1) {
-       chrg <- "-"
-     }else if(charge > 1){
-       chrg <- sprinf("$s+", charge)
-     }else if(charge < -1){
-       chrg <- sprinf("$s-", abs(charge))
-     }else if(chrg == 0){
+      FormulaL <-
+        sprintf("+%s%s", Mr, Ar) %>%
+        stri_replace_all(., "1", regex = "(?<=[-|+])(?=[:upper:])") %>%
+        stri_split(., regex = "(?<=[:alnum:])(?=[-|+][:digit:]?)") %>% .[[1]] %>%
+        stri_split_regex("(?=[:upper:])")
 
-     }
+      countTbl <-
+        lapply(FormulaL, function(y) {
+          mt <-
+            stri_split(y[-1], regex = "(?<=[:alpha:])(?=[:digit:]|$)") %>%
+            do.call(rbind, .)
+          mt[mt == ""] <- 1
+          tibble(element = mt[, 1],
+                 number = as.numeric(mt[, 2]) * as.numeric(y[1]))
+        }) %>%
+        bind_rows() %>%
+        group_by(element) %>%
+        summarise(N = sum(number)) %>%
+        mutate(mz = N * elements[element]) %>%
+        dplyr::filter(N > 0)
 
-   }
+      tibble(
+        Adduct0 = fml[x],
+        Adduct1 = MA,
+        AdductR = MAr,
+        pFormula = paste(
+          countTbl$element,
+          countTbl$N,
+          collapse = "",
+          sep = ""
+        ),
+        PrecursorMz = sum(countTbl$mz)
+      )
+    }) %>% bind_rows()
+  }
 
-
- })
-
- chr <- stri_extract_last(
-   adduct, regex = "(?<![:alpha:]&^[M])([:digit:]?[-|+][:digit:]?)")
-
-
-  stri_replace(adduct,"",regex="[-|+](?=$|[\\]])")
-    a <- stri_extract_first(
-        adduct, regex = "[:alnum:]+([:alnum:]|[-|+])?[:alpha:]?[:alnum:]?")
-    b <- stri_extract_last(
-        adduct, regex = "(?<![:alpha:]&^[M])([:digit:]?[-|+][:digit:]?)")
-    sprintf('[%s]%s', a, b)
-})
-
-# xAdduct(adduct = "[2M]+")
-# xFormula("C13H22O4", 'mz')
 
 # clean MSn -----------------------------------------------------------------------------------
 
@@ -786,8 +790,7 @@ setMethod("cleanMSn.iter", c(mz = "matrix", tol = "numeric"), function(mz, tol, 
 
 # pre filter --------------------------------------------------------------
 
-mspPreFilter <- function(x = range_idx["1"],
-                         lib_vct = lib) {
+mspPreFilter <- function(x = range_idx["1"], lib_vct = lib) {
   require(MRMlib)
   require(tidyverse)
   require(stringi)
@@ -847,14 +850,13 @@ setMethod("xMStoDB", c(ms = "data.frame", db = "data.frame", tol = "numeric"), f
         mzs <- mzMatrix[Hit, ][i, ]
         tibble(
           splash = db[Hit, ][i, 1][[1]],
-          PrecursorMz = db[Hit, ][i, 2][[1]],
-          pFormula = db[Hit, ][i, 3][[1]],
+          # PrecursorMz = db[Hit, ][i, 2][[1]],
+          # pFormula = db[Hit, ][i, 3][[1]],
           RTs = as.numeric(rts),
           ppm = as.numeric(mzs)
         ) %>% dplyr::filter(RTs > 0)
       }
-    ) %>%
-      bind_rows()
+    ) %>% bind_rows() %>% left_join(., db0 %>% select(-RTs,), by = "splash")
 })
 
 
