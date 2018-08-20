@@ -5,10 +5,10 @@ require(MSnbase)
 require(MRMlib)
 
 env <- new.env()
-hmdbInfo <- load(system.file("DB/hmdbInfo.QT", package = "MRMlib"), env)
-matchIdx <- load(system.file("DB/initalMatch2HmdbIndex.QT", package = "MRMlib"), env)
-initInfo <- load(system.file("DB/initalInfo.QT", package = "MRMlib"), env)
-# Get compounds idx -------------------------------------------------------
+hmdbInfo <- load("~/R/DB/DBraw/hmdbInfo.QT",env)
+matchIdx <- load("~/R/DB/DBraw/initalMatch2HmdbIndex.QT", env)
+initInfo <- load("~/R/DB/DBraw/initalInfo.QT", env)
+# Get compounds i-~/R/---------------------------------------------
 
 hmdbInfo_list <- lapply(hmdbInfo, function(x) {
     as.name(x) %>% eval(envir = env)
@@ -35,20 +35,21 @@ initInfo_list <- as_tibble(initInfo_list)
 require(RSQLite)
 require(dbplyr)
 
-metaDB <- dbConnect(RSQLite::SQLite(),system.file("DB/metaDB.sqlite",package = "MRMlib"))
+metaDB <- dbConnect(RSQLite::SQLite(),"~/R/DB/metaDB.sqlite")
 dbWriteTable(metaDB, name = 'hmdbInfo', hmdbInfo_list)
 dbWriteTable(metaDB, name = 'matchIdx', matchIdx_list)
 dbWriteTable(metaDB, name = 'initInfo', initInfo_list)
 
 # load from SQLite --------------------------------------------------------
 
-# hmdbInfo_list <- tbl(metaDB, "hmdbInfo")
-# matchIdx_list <- tbl(metaDB, "matchIdx")
-# initInfo_list <- tbl(metaDB, "initInfo")
+hmdbInfo_list <- tbl(metaDB, "hmdbInfo")
+matchIdx_list <- tbl(metaDB, "matchIdx")
+initInfo_list <- tbl(metaDB, "initInfo")
 
 # load msp file -------------------------------------------------------------------------------
 
-file_raw <- system.file("DB/Plant.msp", package = "MRMlib")
+# file_raw <- system.file("/DB/Plant.msp", package = "MRMlib")
+file_raw <- "~/R/DB/Plant.msp"
 lib <- read_lines(file = file_raw)
 begin_idx <- grep(pattern = "BEGIN",ignore.case = F, fixed = T,x = lib)
 end_idx <- grep(pattern = "END",ignore.case = F, fixed = T,x = lib)
@@ -90,18 +91,27 @@ msp_list <- parLapply(
   }
 )
 
+# save msp_list to file ---------------------------------------------------
+
+saveRDS(msp_list, file = "~/R/DB/msp_list.rds")
+msp_list <- readRDS(file = "~/R/DB/msp_list.rds")
+
 
 metaMsn_i <- new('metaMSn', MSn= msp_list)
-traTbl <- filterMSn(object = metaMsn_i, topX = 5, type = "local", cluster = cl)
+traTbl <- filterMSn(object = metaMsn_i, topX = 10, type = "local", cluster = cl)
 
-dbWriteTable(metaDB, "tarTbl", traTbl)
+# dbWriteTable(metaDB, "tarTbl", traTbl)
 
-traTbl_join <- traTbl %>%
+
+
+
+traTbl_join <- traTbl %>% as_tibble() %>%
   left_join(., initInfo_list, by = c("splash" = "splash10")) %>%
   left_join(., hmdbInfo_list, by = c("initialInChIKey" = "InChIKey")) %>%
   dplyr::filter(ExactMass-PrecursorMz < 2) %>%
   dplyr::filter(Polarity == "+")
-dbWriteTable(metaDB, "traTbl_join", traTbl_join)
+
+# dbWriteTable(metaDB, "traTbl_join", traTbl_join)
 
 # cross ref. --------------------------------------------------------------
 xDB <- xMStoDB(ms = peak0, db = traTbl_join, tol = 5)
@@ -112,8 +122,8 @@ skylineTra <- toSkyline(infoTibble = xDB, deltaMz = 12) %>% unique()
 skylineTra_2 <-
   skylineTra %>% mutate(`Precursor Name` =
                           paste(`Precursor Name`,
-                                round(`Explicit Retention Time` / 60, 1), sep =
-                                  "---"))
+                                round(`Explicit Retention Time` / 60, 1), sep="---")
+                        )
 
 
 write_csv(
