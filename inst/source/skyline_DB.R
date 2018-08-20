@@ -100,7 +100,7 @@ msp_list <- readRDS(file = "~/R/DB/msp_list.rds")
 metaMsn_i <- new('metaMSn', MSn= msp_list)
 traTbl <- filterMSn(object = metaMsn_i, topX = 10, type = "local", cluster = cl)
 
-# dbWriteTable(metaDB, "tarTbl", traTbl)
+dbWriteTable(metaDB, "tarTbl", traTbl, overwrite = T)
 
 
 
