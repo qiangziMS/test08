@@ -650,7 +650,7 @@ xAdduct <- function(cls, adducts, formulas, polarities) {
   }) %>% bind_rows()
 }
 
-
+# xAdduct(cl, c("[M+H]+"), "C2H3O",'+')
 # clean MSn -----------------------------------------------------------------------------------
 
 setGeneric("cleanMSn", function(mz, tol) standardGeneric("cleanMSn"))
