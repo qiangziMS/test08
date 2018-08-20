@@ -33,11 +33,18 @@ initInfo_list <- as_tibble(initInfo_list)
 
 # SQlite DB ---------------------------------------------------------------
 require(RSQLite)
+require(dbplyr)
 
 metaDB <- dbConnect(RSQLite::SQLite(),system.file("DB/metaDB.sqlite",package = "MRMlib"))
 dbWriteTable(metaDB, name = 'hmdbInfo', hmdbInfo_list)
 dbWriteTable(metaDB, name = 'matchIdx', matchIdx_list)
 dbWriteTable(metaDB, name = 'initInfo', initInfo_list)
+
+# load from SQLite --------------------------------------------------------
+
+# hmdbInfo_list <- tbl(metaDB, "hmdbInfo")
+# matchIdx_list <- tbl(metaDB, "matchIdx")
+# initInfo_list <- tbl(metaDB, "initInfo")
 
 # load msp file -------------------------------------------------------------------------------
 
@@ -86,6 +93,7 @@ msp_list <- parLapply(
 
 metaMsn_i <- new('metaMSn', MSn= msp_list)
 traTbl <- filterMSn(object = metaMsn_i, topX = 5, type = "local", cluster = cl)
+
 dbWriteTable(metaDB, "tarTbl", traTbl)
 
 traTbl_join <- traTbl %>%

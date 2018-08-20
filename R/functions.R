@@ -566,7 +566,9 @@ xAdduct <- function(cls, adducts, formulas, polarities) {
     stri_extract_last_regex(adducts, "[:digit:]*[-|+](?=$|[\\]])")
   pol <- polarities
 
-  ruleR <- xRule(n = 3)  %>% dplyr::filter(keyR)
+
+  rule3 <- xRule(n = 3)
+  ruleR <- rule3  %>% dplyr::filter(keyR)
 
   formula0 <-
     formulas %>% stri_replace_all(., "", regex = "[-|+]")
