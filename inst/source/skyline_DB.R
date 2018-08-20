@@ -31,6 +31,14 @@ matchIdx_list <- as_tibble(matchIdx_list)
 initInfo_list <- as_tibble(initInfo_list)
 
 
+# SQlite DB ---------------------------------------------------------------
+require(RSQLite)
+
+metaDB <- dbConnect(RSQLite::SQLite(),system.file("DB/metaDB.sqlite",package = "MRMlib"))
+dbWriteTable(metaDB, name = 'hmdbInfo', hmdbInfo_list)
+dbWriteTable(metaDB, name = 'matchIdx', matchIdx_list)
+dbWriteTable(metaDB, name = 'initInfo', initInfo_list)
+
 # load msp file -------------------------------------------------------------------------------
 
 file_raw <- system.file("DB/Plant.msp", package = "MRMlib")
@@ -77,26 +85,33 @@ msp_list <- parLapply(
 
 
 metaMsn_i <- new('metaMSn', MSn= msp_list)
-traTbl <- filterMSn(object = metaMsn_i, topX = 10, type = "local", cluster = cl)
+traTbl <- filterMSn(object = metaMsn_i, topX = 5, type = "local", cluster = cl)
+dbWriteTable(metaDB, "tarTbl", traTbl)
+
+traTbl_join <- traTbl %>%
+  left_join(., initInfo_list, by = c("splash" = "splash10")) %>%
+  left_join(., hmdbInfo_list, by = c("initialInChIKey" = "InChIKey")) %>%
+  dplyr::filter(ExactMass-PrecursorMz < 2) %>%
+  dplyr::filter(Polarity == "+")
+dbWriteTable(metaDB, "traTbl_join", traTbl_join)
 
 # cross ref. --------------------------------------------------------------
-traTbl_list <- traTbl %>%
-    left_join(., initInfo_list, by = c("splash" = "splash10")) %>%
-    left_join(., hmdbInfo_list, by = c("initialInChIKey" = "InChIKey")) %>%
-    dplyr::filter(ExactMass-PrecursorMz < 2) %>%
-    dplyr::filter(Polarity == "+")
+xDB <- xMStoDB(ms = peak0, db = traTbl_join, tol = 5)
+skylineTra <- toSkyline(infoTibble = xDB, deltaMz = 12) %>% unique()
 
-xDB <- xMStoDB(ms = peak0, db = traTbl_list, tol = 20)
-
-skylineTra <-
-    toSkyline(infoTibble = xDB, deltaMz = 12) %>% unique()
 
 # write to skyline transition -----------------------------------------------------------------
+skylineTra_2 <-
+  skylineTra %>% mutate(`Precursor Name` =
+                          paste(`Precursor Name`,
+                                round(`Explicit Retention Time` / 60, 1), sep =
+                                  "---"))
+
 
 write_csv(
-    skylineTra,
+  skylineTra_2,
     append = F,
-    path = sprintf("./MRM_transition_list_%s.csv", Sys.Date())
+    path = sprintf("./data/MRMtransition-%s.csv", Sys.Date())
 )
 
 

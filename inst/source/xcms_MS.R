@@ -1,5 +1,7 @@
 require(xcms)
-files <- dir("E://raw/PRM/", full.names = T)
+# require(parallel)
+# files <- dir("E://raw/PRM/", full.names = T)
+files <- dir("~/RD/mzML/",full.names = T)
 if(Sys.info()["sysname"]=="Windows"){
   parN <- SnowParam(8)
 }else{
@@ -12,7 +14,7 @@ xSet <-
     method = "centWave",
     ppm = 10,
     noise = 1000,
-    snthresh = 10,
+    snthresh = 20,
     prefilter = c(6,1000),
     BPPARAM = parN,
     fitgauss = T,

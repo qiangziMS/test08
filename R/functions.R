@@ -482,7 +482,7 @@ xRule <- function(n) {
   posR <- c(F,F,F,F,F)
 
   neu <- c("H2O", "FA" ,'DMSO', "ACN")
-  neuF <- c("H2O", "CH2O2" ,'C2H6OS', "CNH")
+  neuF <- c("H2O", "CH2O2" ,'C2H6OS', "C2NH3")
   neuR <- c(F,T,T,T)
 
   ruleTbl <- tibble(
@@ -565,8 +565,8 @@ xAdduct <- function(cls, adducts, formulas, polarities) {
   chr <-
     stri_extract_last_regex(adducts, "[:digit:]*[-|+](?=$|[\\]])")
   pol <- polarities
-  rule3 <- xRule(n = 3)
-  ruleR <- rule3  %>% dplyr::filter(keyR)
+
+  ruleR <- xRule(n = 3)  %>% dplyr::filter(keyR)
 
   formula0 <-
     formulas %>% stri_replace_all(., "", regex = "[-|+]")
@@ -744,7 +744,7 @@ setGeneric("xMStoDB", function(ms,db,tol) standardGeneric("xMStoDB"))
 setMethod("xMStoDB", c(ms = "data.frame", db = "data.frame", tol = "numeric"), function(ms,db,tol){
     ms <- ms %>% as_tibble()
     db0 <- db
-    db <- db %>% select(splash, PrecursorMz, pFormula) %>% unique()
+    db <- db0 %>% select(splash, PrecursorMz, pFormula) %>% unique()
     dbmz <- db$PrecursorMz
     msmz <- ms$mz
 
@@ -757,24 +757,36 @@ setMethod("xMStoDB", c(ms = "data.frame", db = "data.frame", tol = "numeric"), f
                nrow = length(dbmz),
                ncol = length(msmz))
 
-    mzMatrixL <- mzMatrix <= tol
-    rtMatrixL <- rtMatrix * mzMatrixL
-    Hit <-  apply(rtMatrixL, 1, sum, na.rm=T) > 0
+    mzMatrixL <- mzMatrix * (mzMatrix <= tol)
 
+    rtMatrixL <- rtMatrix * (mzMatrix <= tol)
+
+    Hit <-  apply((mzMatrix <= tol), 1, any, na.rm=T)
+
+    rtList <- apply(rtMatrixL, 1, function(x){
+      x[x>0]
+    })[Hit]
+
+    mzList <- apply(mzMatrixL, 1, function(x){
+      x[x>0]
+    })[Hit]
+
+    dbList <- db$splash[Hit]
+xxx <-
     lapply(
-      seq(sum(Hit)),
-      FUN = function(i) {
-        rts <- rtMatrixL[Hit, ][i, ]
-        mzs <- mzMatrix[Hit, ][i, ]
+      seq_along(dbList),
+      function(i) {
+        rts <- rtList[[i]]
+        mzs <- mzList[[i]]
         tibble(
-          splash = db[Hit, ][i, 1][[1]],
+          splash = dbList[i],
           # PrecursorMz = db[Hit, ][i, 2][[1]],
           # pFormula = db[Hit, ][i, 3][[1]],
           RTs = as.numeric(rts),
           ppm = as.numeric(mzs)
         ) %>% dplyr::filter(RTs > 0)
       }
-    ) %>% bind_rows() %>% left_join(., db0 %>% select(-RTs,), by = "splash")
+    ) %>% bind_rows() %>% left_join(., db0 %>% select(-RTs), by = "splash")
 })
 
 # summary mspList ---------------------------------------------------------
