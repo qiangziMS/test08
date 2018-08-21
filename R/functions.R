@@ -104,23 +104,32 @@ find_isotopes <- function(i, mz_x, mz_tol, binMz=0.5, mz_only = T, predictedIso)
         .isotopeN <- NULL
         .mz_tol <- abs(mz_tol)
 
-        if (.mz_tol > 1) {
-            delta_type = "ppm"
-        } else if (.mz_tol <= 1) {
-            delta_type = "abs"
-        }
+        # if (.mz_tol > 1) {
+        #     delta_type = "ppm"
+        # } else if (.mz_tol <= 1) {
+        #     delta_type = "abs"
+        # }
 
         for (j in seq(predictedIso)) {
-            is_iso_mz <- switch(
-                delta_type,
-                ppm = abs(mz_x[i, 1] - mz_x[seq(i), 1] - 1.00336 * j) /
-                    mz_x[seq(i), 1] <= j*.mz_tol / 1000000,
-                abs = abs(mz_x[i, 1] - mz_x[seq(i), 1] - 1.00336 * j) <= j*.mz_tol
-            )
+            # is_iso_mz <- switch(
+            #     delta_type,
+            #     ppm = (abs(mz_x[i, 1] - mz_x[seq(i), 1] - 1.00336 * j) /
+            #         mz_x[seq(i), 1]) <= (.mz_tol / 1000000),
+            #     abs = abs(mz_x[i, 1] - mz_x[seq(i), 1] - 1.00336 * j) <= .mz_tol
+            # )
+          if (.mz_tol > 1) {
+            # delta_type = "ppm"
+            is_iso_mz <- (abs(mz_x[i, 1] - mz_x[seq(i), 1] - 1.00336 * j) /
+                                    mz_x[seq(i), 1]) <= (.mz_tol / 1000000)
+          } else if (.mz_tol <= 1) {
+            is_iso_mz <- abs(mz_x[i, 1] - mz_x[seq(i), 1] - 1.00336 * j) <= .mz_tol
+            # delta_type = "abs"
+          }
 
-            is_close <- abs(mz_x[i, 1] - mz_x[seq(i), 1]) <= binMz
+
+            # is_close <- abs(mz_x[i, 1] - mz_x[seq(i), 1]) <= binMz
             if(mz_only){
-                is_iso_all <- is_iso_mz & mz_x[seq(i), 2] > mz_x[i, 2]
+                is_iso_all <- is_iso_mz & (mz_x[seq(i), 2] > mz_x[i, 2])
                 .isotopeN[j] <- any(is_iso_all)
             }else{
             is_iso_all <-
@@ -317,16 +326,6 @@ setMethod('metaLink', c(object="metaMSn"), function(object, tag, ...){
 
 
 # load elements info ------------------------------------------------------
-# elsTbl <-
-#   read_table(
-#     file = system.file("DB/ICIS_elements.els", package = "MRMlib"),
-#     col_names = c("element", "mass", "proportion", "other"))
-# monoMassTbl <-
-#   elsTbl %>% arrange(element, desc(proportion))
-# monoMass <-
-#   monoMassTbl[!(duplicated(monoMassTbl$element)), ]
-# elements <- monoMass$mass
-# names(elements) <- monoMass$element
 
 
 
@@ -388,14 +387,17 @@ setMethod("filterMSn", c(object = "metaMSn"),
               }
             }
             cat("step 2 start ...\n")
-            xAdduct(
+
+            # infoTibble <- infoTibble %>% filter(Adduct0 == "[M+2H]+")
+
+           xAdduct(
                 cls = cluster,
                 formulas = infoTibble$Formula,
                 adducts = infoTibble$Adduct0,
                 polarities = infoTibble$Polarity
               ) %>%
               bind_cols(infoTibble, .) %>%
-              mutate(DeltaMz = PrecursorMz - mz, RTs = NA)
+              mutate(DeltaMz = PrecursorMz - mz, RTs = 0)
           })
 
 
@@ -420,53 +422,75 @@ setMethod("toSkyline", c(infoTibble = "tbl"),
                       `-2` = -2,
                       `+2` = 2,
                       `2-` = -2,
-                      `2+` = 2
+                      `2+` = 2,
+                      `-3` = -3,
+                      `+3` = 3,
+                      `3-` = -3,
+                      `3+` = 3
                   )
+
+              bestName <- function(...){
+
+                Args <- list(...)
+                names(Args) <- paste("V", seq_along(Args),sep="")
+                  as_tibble(Args) %>%
+                  transmute(maxx = apply(., 1, function(x){
+                    # cat(x)
+                    xn <- nchar(x, type = "bytes")
+                    xn[xn<1] <- NA
+                    x[which.min(xn)]
+                  })
+                  ) %>% .$maxx
+              }
+
 
               multiCETbl <-
                   infoTibble %>%
                   dplyr::filter(DeltaMz >= deltaMz) %>%
-                  mutate(CE =ifelse(is.na(CE)|CE=="",30.1, CE)) %>%
+                  mutate(CE =ifelse(is.na(CE)|CE=="", 30.1, CE)) %>%
                   transmute(
                       `Note` = splash,
                       `Molecule List Name` = Class,
-                      `Precursor Name` = initialName,
+                      `Precursor Name` = bestName(Name, initialName),
                       `Precursor Formula` = Formula,
                       `Precursor Adduct` = Adduct1,
-                      `Precursor Charge` = chargeRule[Polarity],
-                      `Precursor m/z` = PrecursorMz,
+                      `Precursor Charge` = chargeRule[as.character(pCharge)],
+                      `Precursor m/z` = PrecursorMz/`Precursor Charge`,
                       `Product m/z` = mz,
-                      `Product Charge` = chargeRule[Polarity],
-                      `Explicit Retention Time` = RTs,
+                      `Product Charge` = chargeRule[as.character(Polarity)],
+                      `Explicit Retention Time` = round(RTs/60,2),
                       # `Product Name` =  round(PrecursorMz,2),
-                      `InChiKey` = initialInChIKey,
+                      `InChiKey` = InChIKey,
                       `Explicit Collision Energy` =
-                          stri_extract_all(
-                              CE, regex = "[:digit:]+[.]?[:digit:]+") %>%
+                          stri_extract_all(CE, regex = "[:digit:]+[.]?[:digit:]+") %>%
                           .[[1]] %>%
-                          as.numeric() %>% median()
+                          as.numeric() %>%
+                          median()
                   ) %>%
                   dplyr::filter(stri_detect_regex(
-                      InChiKey, pattern = "[:upper:]+[-][:upper:]+[-][:upper:]"))
+                      InChiKey, pattern = "[:upper:]+[-][:upper:]+[-][:upper:]")
+                      )
 
-              multiCETbl  %>%
-                  group_by(
-                      InChiKey,
-                      Note,
-                      `Explicit Collision Energy`) %>%
+              multiCETbl_u <-
+                multiCETbl  %>%
+                group_by(!!!lapply(names(multiCETbl)[-3], as.symbol)) %>%
+                summarise(`Precursor Name` = first(`Precursor Name`))
+
+              # xxx <-
+              multiCETbl_u %>%
+                group_by(`Note`, `InChiKey`) %>%
                   summarise(CEBest = n()) %>%
                   split.data.frame(f = .$InChiKey) %>%
                   lapply(FUN = function(tbl) {
-                          tbl[which.max(tbl$CEBest), ] %>% mutate(CEBest = T)
+                          tbl[which.max(tbl$CEBest), ]
                       }) %>%
                   do.call(bind_rows, args = .) %>%
                   left_join(
-                      x = multiCETbl,
-                      y = .,
-                      by = c("InChiKey", "Note","Explicit Collision Energy")) %>%
-                  dplyr::filter(CEBest) %>% select(-CEBest)
+                      x = .,
+                      y = multiCETbl_u,
+                      by = c("InChiKey", "Note")) %>%
+                  select(-CEBest)
           })
-
 
 
 
@@ -615,7 +639,7 @@ xAdduct <- function(cls, adducts, formulas, polarities) {
     Mr <- stri_replace(M, formula0[x], fixed = "M")
 
     FormulaL <-
-      sprintf("+%s%s", Mr, Ar) %>%
+      paste(c("+", Mr, Ar), sep="", collapse = "") %>%
       stri_replace_all(., "1", regex = "(?<=[-|+])(?=[:upper:])") %>%
       stri_split(., regex = "(?<=[:alnum:])(?=[-|+][:digit:]?)") %>% .[[1]] %>%
       stri_split_regex("(?=[:upper:])")
@@ -645,12 +669,13 @@ xAdduct <- function(cls, adducts, formulas, polarities) {
         collapse = "",
         sep = ""
       ),
-      PrecursorMz = sum(countTbl$mz)
+      PrecursorMz = sum(countTbl$mz),
+      pCharge = chrg
     )
   }) %>% bind_rows()
 }
 
-# xAdduct(cl, c("[M+H]+"), "C2H3O",'+')
+
 # clean MSn -----------------------------------------------------------------------------------
 
 setGeneric("cleanMSn", function(mz, tol) standardGeneric("cleanMSn"))
@@ -755,7 +780,7 @@ setMethod("xMStoDB", c(ms = "data.frame", db = "data.frame", tol = "numeric"), f
             abs(d - msmz)/d * 1000000
         }) %>% do.call(rbind, .)
     rtMatrix <-
-        matrix(data = rep(ms$rt, length(dbmz)),
+        matrix(data = rep(ms$rt, each=length(dbmz)),
                nrow = length(dbmz),
                ncol = length(msmz))
 
@@ -774,7 +799,7 @@ setMethod("xMStoDB", c(ms = "data.frame", db = "data.frame", tol = "numeric"), f
     })[Hit]
 
     dbList <- db$splash[Hit]
-xxx <-
+# xxx <-
     lapply(
       seq_along(dbList),
       function(i) {
