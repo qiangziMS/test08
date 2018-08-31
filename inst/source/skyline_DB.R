@@ -3,8 +3,15 @@ require(stringi)
 require(ChemmineR)
 require(MSnbase)
 require(MRMlib)
-
+require(RSQLite)
+require(dbplyr)
+metaDB <- dbConnect(RSQLite::SQLite(),"~/R/DB/metaDB.sqlite")
 env <- new.env()
+
+# ------------------------------------------------------------------------
+
+
+
 hmdbInfo <- load("~/R/DB/DBraw/hmdbInfo.QT",env)
 matchIdx <- load("~/R/DB/DBraw/initalMatch2HmdbIndex.QT", env)
 initInfo <- load("~/R/DB/DBraw/initalInfo.QT", env)
@@ -26,25 +33,24 @@ initInfo_list <- lapply(initInfo, function(x) {
 names(initInfo_list) <- initInfo
 
 
-hmdbInfo_list <- as_tibble(hmdbInfo_list)
-matchIdx_list <- as_tibble(matchIdx_list)
-initInfo_list <- as_tibble(initInfo_list)
+# hmdbInfo_list <- as_tibble(hmdbInfo_list)
+# matchIdx_list <- as_tibble(matchIdx_list)
+# initInfo_list <- as_tibble(initInfo_list)
 
-
+initInfo_list <- as_tibble(initInfo_list) %>% bind_cols(matchIdx_list,.)
+hmdbInfo_list <- as_tibble(hmdbInfo_list) %>% mutate(IDX = seq(nrow(.)))
 # SQlite DB ---------------------------------------------------------------
-require(RSQLite)
-require(dbplyr)
 
-metaDB <- dbConnect(RSQLite::SQLite(),"~/R/DB/metaDB.sqlite")
-dbWriteTable(metaDB, name = 'hmdbInfo', hmdbInfo_list)
-dbWriteTable(metaDB, name = 'matchIdx', matchIdx_list)
-dbWriteTable(metaDB, name = 'initInfo', initInfo_list)
+
+dbWriteTable(metaDB, name = 'hmdbInfo', hmdbInfo_list, overwrite = T)
+# dbWriteTable(metaDB, name = 'matchIdx', matchIdx_list)
+dbWriteTable(metaDB, name = 'initInfo', initInfo_list, overwrite = T)
 
 # load from SQLite --------------------------------------------------------
 
-hmdbInfo_list <- tbl(metaDB, "hmdbInfo")
-matchIdx_list <- tbl(metaDB, "matchIdx")
-initInfo_list <- tbl(metaDB, "initInfo")
+hmdbInfo_list <- tbl(metaDB, "hmdbInfo") %>% as_tibble()
+# matchIdx_list <- tbl(metaDB, "matchIdx") %>% as_tibble()
+initInfo_list <- tbl(metaDB, "initInfo") %>% as_tibble()
 
 # load msp file -------------------------------------------------------------------------------
 
@@ -69,8 +75,8 @@ msp_list <-
         range_idx,
         mspParser,
         lib_vct = lib,
-        nbTol = 0.8,
-        mz_tol = 0.015
+        nbTol = 1,
+        mz_tol = 0.1, mz_only = T
     )
 
 
@@ -93,37 +99,51 @@ msp_list <- parLapply(
 
 # save msp_list to file ---------------------------------------------------
 
-saveRDS(msp_list, file = "~/R/DB/msp_list.rds")
+saveRDS(msp_list, file = "~/R/DB/msp_list_n1_m0.1.rds")
 msp_list <- readRDS(file = "~/R/DB/msp_list.rds")
 
-
+cl <- makeCluster(8)
 metaMsn_i <- new('metaMSn', MSn= msp_list)
-traTbl <- filterMSn(object = metaMsn_i, topX = 10, type = "local", cluster = cl)
+traTbl <- filterMSn(object = metaMsn_i, topX = 5, type = "local", cluster = cl)
 
-dbWriteTable(metaDB, "tarTbl", traTbl, overwrite = T)
+dbWriteTable(metaDB, "tarTbl-n1-m0.1-t5", traTbl, overwrite = T)
 
+# traTbl <- tbl(metaDB, "tarTbl") %>% as_tibble()
 
 
 
 traTbl_join <- traTbl %>% as_tibble() %>%
   left_join(., initInfo_list, by = c("splash" = "splash10")) %>%
-  left_join(., hmdbInfo_list, by = c("initialInChIKey" = "InChIKey")) %>%
+  left_join(., hmdbInfo_list, by = c("match2HmdbIndex" = "IDX")) %>%
   dplyr::filter(ExactMass-PrecursorMz < 2) %>%
+  dplyr::filter(!stri_detect(Formula, regex = "[D]")) %>%
   dplyr::filter(Polarity == "+")
 
-# dbWriteTable(metaDB, "traTbl_join", traTbl_join)
+
+dbWriteTable(metaDB, "traTbl_join-n1-m0.1-t5", traTbl_join, overwrite = T)
+
+
+
+
+
+# +++++++ START from DB +++++++ -------------------------------------------
+# ---------- LOAD DB  -----------------------------------------------------
+
+traTbl_join <- tbl(metaDB, "traTbl_join") %>% as_tibble()
+
 
 # cross ref. --------------------------------------------------------------
+
+
+# peak0 <- peak0 %>% mutate(mz = mzmed, rt = rtmed)
 xDB <- xMStoDB(ms = peak0, db = traTbl_join, tol = 5)
 skylineTra <- toSkyline(infoTibble = xDB, deltaMz = 12) %>% unique()
 
 
 # write to skyline transition -----------------------------------------------------------------
 skylineTra_2 <-
-  skylineTra %>% mutate(`Precursor Name` =
-                          paste(`Precursor Name`,
-                                round(`Explicit Retention Time` / 60, 1), sep="---")
-                        )
+  skylineTra %>%
+  mutate(`Precursor Name` = paste(`Precursor Name`, `Explicit Retention Time`, sep="--"))
 
 
 write_csv(
@@ -133,6 +153,9 @@ write_csv(
 )
 
 
+
+
+stopCluster(cl)
 
 
 
