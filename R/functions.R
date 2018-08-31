@@ -615,7 +615,11 @@ xAdduct <- function(cls, adducts, formulas, polarities) {
     Mr <- stri_replace(M, formula0[x], fixed = "M")
 
     FormulaL <-
+<<<<<<< HEAD
       paste(c("+", Mr, Ar),sep="", collapse = "") %>%
+=======
+      paste(c("+", Mr, Ar), sep="", collapse = "") %>%
+>>>>>>> 03ad0f776855de7e90fd88837a6bb4fa9389f36c
       stri_replace_all(., "1", regex = "(?<=[-|+])(?=[:upper:])") %>%
       stri_split(., regex = "(?<=[:alnum:])(?=[-|+][:digit:]?)") %>% .[[1]] %>%
       stri_split_regex("(?=[:upper:])")
