@@ -1,7 +1,7 @@
 require(xcms)
 require(CAMERA)
 # files <- dir("E://raw/PRM/", full.names = T)
-files <- dir("~/RD/mzML/20180827-3//",full.names = T)
+files <- dir("~/R/RD/mzML/20180827-3//",full.names = T)
 if(Sys.info()["sysname"]=="Windows"){
   parN <- SnowParam(8)
 }else{
@@ -15,39 +15,42 @@ xSet <-
     method = "centWave",
     ppm = 10,
     noise = 5000,
-    snthresh = 20,
-    prefilter = c(6, 5000),
+    snthresh = 100,
+    prefilter = c(3, 5000),
     BPPARAM = parN,
     fitgauss = T,
     integrate = 1,
     peakwidth = c(10, 30)
   )
 
-peakRaw <- group(xSet, method = "density", minfrac=0,bw = 10, mzwid = 0.1, minsamp=0)
-peakRaws <- peakRaw@peaks %>% as_tibble()
-peakRaw@groups %>% as_tibble() %>% filter(mzmed > 611&mzmed <612 & rtmed >345&rtmed <352)
-peakRaw@peaks %>% as_tibble() %>% filter(mz > 611&mz <612 & rt >345&rt <352)
+xSet <-
+  retcor(
+    xSet,
+    method = "obiwarp",
+    plottype = c("none", "deviation"),
+    profStep = 0.01,
+    # center = NULL,
+    col = NULL,
+    ty = NULL,
+    response = 1,
+    distFunc = "cor_opt",
+    gapInit = NULL,
+    gapExtend = NULL,
+    factorDiag = 2,
+    factorGap = 2,
+    localAlignment = 0,
+    initPenalty = 0
+  )
+
+peakRaw <- group(xSet, method = "density", minfrac=0, bw = 15, mzwid = 0.01, minsamp=1)
+peak0 <-
+  xsAnnotate(peakRaw) %>%
+  groupFWHM() %>%
+  groupCorr() %>%
+  findIsotopes(minfrac=0.1, ppm = 5) %>%
+  getPeaklist() %>%
+  filter(!isotopes %>% stri_detect(regex = "[M][+][:digit:]"))
+
+dbWriteTable(metaDB, "peak0", peak0, overwrite = T)
 
 
-#Create an xsAnnotate object
-xsa <- xsAnnotate(group(xSet, method = "density", minfrac=0))
-#Group after RT value of the xcms grouped peak
-xsaF <- groupFWHM(xsa, perfwhm=5)
-# peak <- xsaF %>% getPeaklist()
-#Verify grouping
-xsaC <- groupCorr(xsaF)
-#Annotate isotopes, could be done before groupCorr
-xsaFI <- findIsotopes(xsaC, minfrac=0.1, ppm = 5)
-peak <- xsaFI %>% getPeaklist()
-peak0 <- peak %>% filter(!isotopes %>% stri_detect(regex = "[M][+][:digit:]"))
-
-#Annotate adducts
-rules <-
-  system.file("rules/primary_adducts_pos.csv", package = "CAMERA") %>%
-  read.csv()
-xsaFA <- findAdducts(xsaFI, polarity="positive", rules = rules)
-
-peak <- xsaFA %>% getPeaklist()
-peak0 <- peak %>% filter(!isotopes %>% stri_detect(regex = "[M][+][:digit:]"))
-
-xDB$ppm %>% hist(breaks=50)
