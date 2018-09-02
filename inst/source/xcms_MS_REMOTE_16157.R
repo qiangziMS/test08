@@ -15,13 +15,8 @@ xSet <-
     method = "centWave",
     ppm = 10,
     noise = 5000,
-<<<<<<< HEAD
-    snthresh = 20,
-    # prefilter = c(6, 5000),
-=======
     snthresh = 100,
     prefilter = c(3, 5000),
->>>>>>> aad68aad45b2fc363eb2ac85c342af92fff87292
     BPPARAM = parN,
     fitgauss = T,
     integrate = 1,
@@ -32,11 +27,7 @@ xSet <-
   retcor(
     xSet,
     method = "obiwarp",
-<<<<<<< HEAD
-    # plottype = c("none", "deviation"),
-=======
     plottype = c("none", "deviation"),
->>>>>>> aad68aad45b2fc363eb2ac85c342af92fff87292
     profStep = 0.01,
     # center = NULL,
     col = NULL,
@@ -46,27 +37,10 @@ xSet <-
     gapInit = NULL,
     gapExtend = NULL,
     factorDiag = 2,
-<<<<<<< HEAD
-    factorGap = 1,
-    localAlignment = 0,
-    initPenalty = 0
-  )
-
-peakRaw <- group(xSet, method = "density", minfrac=0, max=100,bw = 30, mzwid = 0.1, minsamp=0)
-peakss <- peakRaw@peaks %>% as_tibble()
-xx <- peakRaw@groups %>% as_tibble() %>% filter(mzmed > 611&mzmed <612 )
-xxx <- groupval(peakRaw)
-pr <- peakRaw@peaks %>% as_tibble() %>% filter(mz > 610&mz <613 & rt >300&rt <400)
-gidx <- peakRaw@groupidx
-xxxx <- peakss[gidx[17634][[1]], ]
-xx[which(xx$mzmed >= 611.158&xx$mzmed <= 611.159),]
-
-=======
     factorGap = 2,
     localAlignment = 0,
     initPenalty = 0
   )
->>>>>>> aad68aad45b2fc363eb2ac85c342af92fff87292
 
 peakRaw <- group(xSet, method = "density", minfrac=0, bw = 15, mzwid = 0.01, minsamp=1)
 peak0 <-
