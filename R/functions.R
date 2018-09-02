@@ -100,35 +100,29 @@ get_iso_percent <-
 #'
 #' @examples NULL
 
-find_isotopes <- function(i, mz_x, mz_tol, binMz=0.5, mz_only = T, predictedIso) {
+mz_x <- spectra
+mz_tol <- 0.01
+
+
+find_isotopes <- function(i, mz_x, mz_tol=0.1, binMz=0.5, mz_only = T, ignoreInt=T, predictedIso) {
         .isotopeN <- NULL
         .mz_tol <- abs(mz_tol)
 
-        # if (.mz_tol > 1) {
-        #     delta_type = "ppm"
-        # } else if (.mz_tol <= 1) {
-        #     delta_type = "abs"
-        # }
-
         for (j in seq(predictedIso)) {
-            # is_iso_mz <- switch(
-            #     delta_type,
-            #     ppm = (abs(mz_x[i, 1] - mz_x[seq(i), 1] - 1.00336 * j) /
-            #         mz_x[seq(i), 1]) <= (.mz_tol / 1000000),
-            #     abs = abs(mz_x[i, 1] - mz_x[seq(i), 1] - 1.00336 * j) <= .mz_tol
-            # )
           if (.mz_tol > 1) {
-            # delta_type = "ppm"
+
             is_iso_mz <- (abs(mz_x[i, 1] - mz_x[seq(i), 1] - 1.00336 * j) /
                                     mz_x[seq(i), 1]) <= (.mz_tol / 1000000)
           } else if (.mz_tol <= 1) {
+
             is_iso_mz <- abs(mz_x[i, 1] - mz_x[seq(i), 1] - 1.00336 * j) <= .mz_tol
-            # delta_type = "abs"
+
           }
 
-
-            # is_close <- abs(mz_x[i, 1] - mz_x[seq(i), 1]) <= binMz
-            if(mz_only){
+          if(ignoreInt){
+            is_iso_all <- is_iso_mz
+            .isotopeN[j] <- any(is_iso_all)
+          }else if(mz_only){
                 is_iso_all <- is_iso_mz & (mz_x[seq(i), 2] > mz_x[i, 2])
                 .isotopeN[j] <- any(is_iso_all)
             }else{
@@ -163,11 +157,12 @@ mspParser <- function(x = range_idx["1"],
                       quantile_2 = c(0.05,0.95),
                       cpdLib = "kegg",
                       iso1 = 0,
-                      iso2 = 1:3,
+                      iso2 = 1:4,
                       lib_vct = lib,
                       nbTol = 0.8,
                       mz_tol = 0.01,
-                      mz_only= T, ...) {
+                      mz_only= T,
+                      ignoreInt = T,...) {
   require(dplyr)
   require(stringi)
   require(MRMlib)
@@ -229,6 +224,7 @@ mspParser <- function(x = range_idx["1"],
             mz_x = mz_x,
             mz_tol = mz_tol,
             mz_only = mz_only,
+            ignoreInt = ignoreInt,
             predictedIso = pred_iso
         ) %>%
         do.call(rbind, .) %>%
@@ -325,9 +321,8 @@ setMethod('metaLink', c(object="metaMSn"), function(object, tag, ...){
 })
 
 
-# load elements info ------------------------------------------------------
 
-
+# Filter product ions to MRM ------------------------------------------------------------------
 
 #' Filter product ions to MRM
 #'
@@ -376,28 +371,43 @@ setMethod("filterMSn", c(object = "metaMSn"),
                 infoTibble <-
                   lapply(object@MSn, .fun) %>%
                   do.call(bind_rows, args = .) %>%
-                  dplyr::filter(Rank <= topX)
+                  dplyr::filter(Rank <= 20)
               } else{
                 cat("step 1 start ...\n")
                 infoTibble <-
                   parallel::parLapply(cluster, object@MSn, .fun) %>%
                   do.call(bind_rows, args = .) %>%
-                  dplyr::filter(Rank <= topX)
+                  dplyr::filter(Rank <= 20)
                 cat("step 1 done ...\n")
               }
             }
             cat("step 2 start ...\n")
 
-            # infoTibble <- infoTibble %>% filter(Adduct0 == "[M+2H]+")
+# add fragments specificity filter ------------------------------------------------------------
 
-           xAdduct(
-                cls = cluster,
-                formulas = infoTibble$Formula,
-                adducts = infoTibble$Adduct0,
-                polarities = infoTibble$Polarity
-              ) %>%
-              bind_cols(infoTibble, .) %>%
-              mutate(DeltaMz = PrecursorMz - mz, RTs = 0)
+            a <- 0.5
+            b <- 0.5
+            tblRaw <-
+              infoTibble %>%
+              mutate(fMZ = round(mz, 0)) %>%
+              group_by(Formula, fMZ)
+
+            tblRank <-
+              tblRaw %>%
+              summarise(fRank = n()) %>%
+              left_join(tblRaw, .) %>%
+              mutate(wRank = a*fRank-b*Rank) %>%
+              group_by(splash) %>%
+              mutate(Ranks = rank(wRank, ties.method = "first"))
+
+            xAdduct(
+              cls = cluster,
+              formulas = tblRank$Formula,
+              adducts = tblRank$Adduct0,
+              polarities = tblRank$Polarity) %>%
+              bind_cols(tblRank, .) %>%
+              mutate(DeltaMz = PrecursorMz - mz, RTs = 0) %>%
+              dplyr::filter(Ranks <=topX)
           })
 
 
@@ -709,6 +719,15 @@ setMethod("cleanMSn", c(mz = "matrix", tol = "numeric"), function(mz, tol){
         unique() %>% as.matrix()
 })
 
+
+# mz <- rnorm(20, 50,10) %>% sort()
+# it <- rep(20:1)
+# spectra <- matrix( c(mz,it), ncol = 2)
+# cleanMSn(mz=spectra, tol = 3)
+# plot(spectra, type="h")
+#
+# points(cleanMSn(mz=spectra, tol = 1)+0.1,type="h",col=2)
+
 setGeneric("cleanMSn.iter", function(mz,tol,echo = F) standardGeneric("cleanMSn.iter"))
 setMethod("cleanMSn.iter", c(mz = "matrix", tol = "numeric"), function(mz, tol, echo = F) {
     i <- NULL
@@ -767,58 +786,112 @@ mspPreFilter <- function(x = range_idx["1"], lib_vct = lib) {
 #' @export NULL
 #'
 #' @examples NULL
-setGeneric("xMStoDB", function(ms,db,tol) standardGeneric("xMStoDB"))
-setMethod("xMStoDB", c(ms = "data.frame", db = "data.frame", tol = "numeric"), function(ms,db,tol){
-    ms <- ms %>% as_tibble()
-    db0 <- db
-    db <- db0 %>% select(splash, PrecursorMz, pFormula) %>% unique()
-    dbmz <- db$PrecursorMz
-    msmz <- ms$mz
+setGeneric("xMStoDB", function(MS,DB,tol,N) standardGeneric("xMStoDB"))
+setMethod("xMStoDB", c( MS = "data.frame",DB = "data.frame",tol = "numeric",N = "numeric"),
+          function(MS, DB, tol, N) {
+            MS <- MS %>% as_tibble()
+            db <- db0 <- DB
+            segment <-
+              c(seq(1, nrow(MS), by = ceiling(nrow(MS) / ceiling(nrow(MS) / N))),
+                nrow(MS))
+            db <- db0 %>% select(splash, PrecursorMz, pFormula) %>% unique()
+            dbmz <- db$PrecursorMz
+            seg <- list()
+            for (i in seq_along(segment)[-1]) {
+              message(sprintf("Start segment %s: %s to %s ...",i-1, segment[i-1], segment[i]))
 
-    mzMatrix <-
-        lapply(dbmz, function(d) {
-            abs(d - msmz)/d * 1000000
-        }) %>% do.call(rbind, .)
-    rtMatrix <-
-        matrix(data = rep(ms$rt, each=length(dbmz)),
-               nrow = length(dbmz),
-               ncol = length(msmz))
+              ms <- MS[segment[i - 1]:segment[i], ]
+              msmz <- ms$mz
+              mzMatrix <-
+                lapply(dbmz, function(d) {
+                  abs(d - msmz) / d * 1000000
+                }) %>% do.call(rbind, .)
+              rtMatrix <-
+                matrix(
+                  data = rep(ms$rt, each = length(dbmz)),
+                  nrow = length(dbmz),
+                  ncol = length(msmz)
+                )
 
-    mzMatrixL <- mzMatrix * (mzMatrix <= tol)
+              mzMatrixL <- mzMatrix * (mzMatrix <= tol)
+              rtMatrixL <- rtMatrix * (mzMatrix <= tol)
+              Hit <-  apply((mzMatrix <= tol), 1, any, na.rm = T)
+              rtList <- apply(rtMatrixL, 1, function(x) {x[x > 0]})[Hit]
+              mzList <- apply(mzMatrixL, 1, function(x) {x[x > 0]})[Hit]
 
-    rtMatrixL <- rtMatrix * (mzMatrix <= tol)
+              dbList <- db$splash[Hit]
 
-    Hit <-  apply((mzMatrix <= tol), 1, any, na.rm=T)
-
-    rtList <- apply(rtMatrixL, 1, function(x){
-      x[x>0]
-    })[Hit]
-
-    mzList <- apply(mzMatrixL, 1, function(x){
-      x[x>0]
-    })[Hit]
-
-    dbList <- db$splash[Hit]
-# xxx <-
-    lapply(
-      seq_along(dbList),
-      function(i) {
-        rts <- rtList[[i]]
-        mzs <- mzList[[i]]
-        tibble(
-          splash = dbList[i],
-          # PrecursorMz = db[Hit, ][i, 2][[1]],
-          # pFormula = db[Hit, ][i, 3][[1]],
-          RTs = as.numeric(rts),
-          ppm = as.numeric(mzs)
-        ) %>% dplyr::filter(RTs > 0)
-      }
-    ) %>% bind_rows() %>% left_join(., db0 %>% select(-RTs), by = "splash")
-})
+              seg[[i-1]] <-
+                lapply(seq_along(dbList),
+                       function(i) {
+                         rts <- rtList[[i]]
+                         mzs <- mzList[[i]]
+                         tibble(splash = dbList[i],
+                                # PrecursorMz = db[Hit, ][i, 2][[1]],
+                                # pFormula = db[Hit, ][i, 3][[1]],
+                                RTs = as.numeric(rts),
+                                ppm = as.numeric(mzs)) %>% dplyr::filter(RTs > 0)
+                       }) %>% bind_rows() %>% left_join(., db0 %>% select(-RTs), by = "splash")
+              gc()
+            }
+            gc()
+            return(seg %>% bind_rows() %>% unique())
+          })
 
 # summary mspList ---------------------------------------------------------
 setGeneric("summary", function(x = 'list') standardGeneric("summary"))
 
+
+# de-duplicate transitions --------------------------------------------------------------------
+
+#' Merge overlapping transitions
+#'
+#' @param traTbl transition tibble (from toSkyline() and subset by InChIKey)
+#' @param RTw RT window
+#'
+#' @return merged traTbl
+#' @export NULL
+#'
+#' @examples NULL
+mergeOverlap <- function(traTbl, RTw = 2) {
+
+  traTbl <- mutate(traTbl,
+                   mergeRT = `Explicit Retention Time`,
+                   mergeRW = RTw)
+  RTs <- traTbl$`Explicit Retention Time` %>% unique() %>% sort()
+
+  for (i in seq_along(RTs)) {
+
+    IDX0 <- traTbl$mergeRT == RTs[i]
+    IDX1 <- traTbl$mergeRT == RTs[i + 1]
+    RTw0 <- traTbl$mergeRW[IDX0] %>% unique()
+    RTw1 <- traTbl$mergeRW[IDX1] %>% unique()
+
+    if (i == length(RTs)) {
+
+      traTbl_dedup <-
+        traTbl %>%
+        mutate(`Explicit Retention Time` = mergeRT,
+               `Explicit Retention Time Window` = mergeRW) %>%
+        select(-mergeRT, -mergeRW) %>%
+        unique()
+      return(traTbl_dedup)
+
+    } else{
+
+      RT0 <- traTbl$mergeRT[IDX0] %>% unique()
+      RT1 <- traTbl$mergeRT[IDX1] %>% unique()
+      RT0r <- c(RT0 - RTw0, RT0 + RTw0)
+      RT1r <- c(RT1 - RTw1, RT1 + RTw1)
+      if (RT0r[2] >= RT1r[1]) {
+        RTir <- range(c(RT0r, RT1r))
+        traTbl$mergeRT[IDX0 | IDX1] <- mean(RTir)
+        traTbl$mergeRW[IDX0 | IDX1] <- diff(RTir) / 2
+        RTs[i:(i+1)] <- mean(RTir)
+      }
+    }
+  }
+}
 
 
 
