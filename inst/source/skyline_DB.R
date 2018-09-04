@@ -1,3 +1,13 @@
+
+# batch MRMlib ------------------------------------------------------------
+
+mlib <- MRMlib()
+
+
+# seperate ----------------------------------------------------------------
+
+
+
 require(tidyverse)
 require(stringi)
 require(ChemmineR)
@@ -69,9 +79,11 @@ msp_list <-
         nbTol = 0.8,
         mz_tol = 0.01,
         mz_only = T,
-        ignoreInt = T
+        ignoreInt = F
     )
 
+
+# to MSP file -------------------------------------------------------------
 
 
 # check NA ----------------------------------------------------------------
@@ -92,16 +104,22 @@ msp_list <- parLapply(
 
 # save msp_list to file ---------------------------------------------------
 
-saveRDS(msp_list, file = "~/R/DB/msp_list_n1_m0.1.rds")
-msp_list <- readRDS(file = "~/R/DB/msp_list.rds")
+saveRDS(msp_list, file = "~/R/DB/msp_list_n0.8_m0.01ig.rds")
+msp_list <- readRDS(file = "~/R/DB/msp_list_n0.8_m0.01ig.rds")
+
+
+
+# run filterMsn -----------------------------------------------------------
+
 
 cl <- makeCluster(8)
 metaMsn_i <- new('metaMSn', MSn= msp_list)
-traTbl <- filterMSn(object = metaMsn_i, topX = 5, type = "local", cluster = cl)
+traTbl <- filterMSn(object = metaMsn_i, topX = 5, type = "local", a = 0.5,b=0.5,cluster = cl)
 
-dbWriteTable(metaDB, "tarTbl-n1-m0.01ig-t5", traTbl, overwrite = T)
 
-traTbl <- tbl(metaDB, "tarTbl-n1-m0.1-t5") %>% as_tibble()
+
+dbWriteTable(metaDB, "tarTbl-n0.8-m0.01ig-t5", traTbl, overwrite = T)
+traTbl <- tbl(metaDB, "tarTbl-n0.8-m0.01ig-t5") %>% as_tibble()
 
 
 
@@ -113,7 +131,15 @@ traTbl_join <- traTbl %>% as_tibble() %>%
   dplyr::filter(Polarity == "+")
 
 
-dbWriteTable(metaDB, "traTbl_join-n1-m0.01ig-t5", traTbl_join, overwrite = T)
+dbWriteTable(metaDB, "traTbl_join-n0.8-m0.01ig-t5", traTbl_join, overwrite = T)
+
+
+
+# to skyline DB.MSP -------------------------------------------------------
+
+tra_list <- traTbl_join %>% toSkyline(deltaMz = 12)
+
+toSkylineDB(X = tra_list, overWrite = T)
 
 
 
@@ -122,12 +148,12 @@ dbWriteTable(metaDB, "traTbl_join-n1-m0.01ig-t5", traTbl_join, overwrite = T)
 # +++++++ START from DB +++++++ -------------------------------------------
 # ---------- LOAD DB  -----------------------------------------------------
 
-traTbl_join <- tbl(metaDB, "traTbl_join-n1-m0.01ig-t5") %>% as_tibble()
+traTbl_join <- tbl(metaDB, "traTbl_join-n0.8-m0.01ig-t5") %>% as_tibble()
 peak0 <- tbl(metaDB, "peak0") %>% as_tibble()
 
 # cross ref. --------------------------------------------------------------
 
-xDB <- xMStoDB(MS = peak0, DB = traTbl_join, tol = 5, N = 6000)
+xDB <- xMStoDB(MS = peak0, DB = traTbl_join, tol = 5, N = 8000)
 skylineTra <- toSkyline(infoTibble = xDB, deltaMz = 12) %>% unique()
 
 # write to skyline transition -----------------------------------------------------------------
@@ -140,7 +166,7 @@ skylineTra_2 <-
 
 
 write_csv(
-  skylineTra_2,
+  skylineTra_2 %>% select(-InChiKey),
     append = F,
     path = sprintf("./data/MRMtransition-%s.csv", Sys.Date())
 )

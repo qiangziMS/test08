@@ -4,7 +4,7 @@
 \alias{filterMSn}
 \title{Filter product ions to MRM}
 \usage{
-filterMSn(object, topX, type, newRule, cluster, ...)
+filterMSn(object, topX, type, cluster, a, b, ...)
 }
 \arguments{
 \item{object}{metaMSn object}
@@ -13,12 +13,12 @@ filterMSn(object, topX, type, newRule, cluster, ...)
 
 \item{type}{local/...}
 
-\item{newRule}{adducts rule}
+\item{cluster}{}
 
 \item{...}{NOT used}
 }
 \value{
-Tibble of products and info
+Tibble of products and info (infoTibble)
 }
 \description{
 Filter product ions to MRM

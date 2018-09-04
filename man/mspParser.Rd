@@ -4,9 +4,9 @@
 \alias{mspParser}
 \title{Parse .MSP file to list}
 \usage{
-mspParser(x = range_idx["1"], quantile_2 = c(0.05, 0.95),
-  cpdLib = "kegg", iso1 = 0, iso2 = 1:3, lib_vct = lib,
-  nbTol = 0.8, mz_tol = 0.01, mz_only = T, ...)
+mspParser(x = range_idx["5"], quantile_2 = c(0.05, 0.95),
+  cpdLib = "kegg", iso1 = 0, iso2 = 1:4, lib_vct = lib,
+  nbTol = 0.8, mz_tol = 0.01, mz_only = T, ignoreInt = T, ...)
 }
 \arguments{
 \item{x}{index of compound info. (list/vector/tibble)}

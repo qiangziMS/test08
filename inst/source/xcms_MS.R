@@ -1,7 +1,7 @@
 require(xcms)
 require(CAMERA)
 # files <- dir("E://raw/PRM/", full.names = T)
-files <- dir("~/R/RD/mzML/20180827-3//",full.names = T)
+files <- dir("~//RD/mzML/20180827-3//",full.names = T)
 if(Sys.info()["sysname"]=="Windows"){
   parN <- SnowParam(8)
 }else{
@@ -14,9 +14,9 @@ xSet <-
     sclass = rep("a1",3),
     method = "centWave",
     ppm = 10,
-    noise = 5000,
+    noise = 8000,
     snthresh = 100,
-    prefilter = c(3, 5000),
+    prefilter = c(5, 5000),
     BPPARAM = parN,
     fitgauss = T,
     integrate = 1,
@@ -42,7 +42,7 @@ xSet <-
     initPenalty = 0
   )
 
-peakRaw <- group(xSet, method = "density", minfrac=0, bw = 15, mzwid = 0.01, minsamp=1)
+peakRaw <- group(xSet, method = "density", minfrac=0, bw = 10, mzwid = 0.01, minsamp=1)
 peak0 <-
   xsAnnotate(peakRaw) %>%
   groupFWHM() %>%

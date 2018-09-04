@@ -100,8 +100,8 @@ get_iso_percent <-
 #'
 #' @examples NULL
 
-mz_x <- spectra
-mz_tol <- 0.01
+# mz_x <- spectra
+# mz_tol <- 0.01
 
 
 find_isotopes <- function(i, mz_x, mz_tol=0.1, binMz=0.5, mz_only = T, ignoreInt=T, predictedIso) {
@@ -153,7 +153,7 @@ find_isotopes <- function(i, mz_x, mz_tol=0.1, binMz=0.5, mz_only = T, ignoreInt
 #' @export NULL
 #'
 #' @examples NULL
-mspParser <- function(x = range_idx["1"],
+mspParser <- function(x = range_idx["5"],
                       quantile_2 = c(0.05,0.95),
                       cpdLib = "kegg",
                       iso1 = 0,
@@ -164,6 +164,7 @@ mspParser <- function(x = range_idx["1"],
                       mz_only= T,
                       ignoreInt = T,...) {
   require(dplyr)
+  require(tidyverse)
   require(stringi)
   require(MRMlib)
 
@@ -192,15 +193,17 @@ mspParser <- function(x = range_idx["1"],
 
     # Get MSn spectrum matrix
     mz_x <-
-        lib_val_x %>%
-        grep(fixed = F,
-             pattern = "^[0-9]+",
-             value = T) %>%
-        stri_split(regex = "[:space:]+") %>%
-        lapply(FUN = as.numeric) %>%
-        do.call(rbind, .) %>%
-        cleanMSn.iter(tol = nbTol,echo = T )
-
+      lib_val_x %>%
+      grep(fixed = F,
+           pattern = "^[0-9]+",
+           value = T) %>%
+      stri_split(regex = "[:space:]+") %>%
+      lapply(FUN = as.numeric) %>%
+      do.call(rbind, .) %>%
+      .[.[, 2] > 0,] %>%
+      matrix(ncol = 2) %>%
+      cleanMSn.iter(mz = ., tol = nbTol, echo = F)
+# cat(x)
 
     # Get predict isotope proportion list
     if (mz_only) {
@@ -336,11 +339,10 @@ setMethod('metaLink', c(object="metaMSn"), function(object, tag, ...){
 #' @export NULL
 #'
 #' @examples NULL
-setGeneric("filterMSn",
-           function(object,topX,type,cluster,...) standardGeneric("filterMSn"))
+setGeneric("filterMSn",function(object,topX,type,cluster,a,b,...) standardGeneric("filterMSn"))
 
 setMethod("filterMSn", c(object = "metaMSn"),
-          function(object,topX=5,type="local",cluster = cl,...) {
+          function(object,topX=5,type="local",cluster = cl, a=0.5, b=0.5,...) {
             if (type == "local") {
               .fun <- function(objList) {
                 require(MRMlib)
@@ -351,7 +353,7 @@ setMethod("filterMSn", c(object = "metaMSn"),
                   dplyr::select(mz, intensity) %>%
                   dplyr::mutate(
                     splash = objList$id,
-                    Rank = rank(-intensity, ties.method = "first"),
+                    iRank = rank(-intensity, ties.method = "first"),
                     Adduct0 = ifelse(is.null(objList$precursorType),
                                      NA,objList$precursorType),
                     Polarity = ifelse(is.null(objList$polarity),
@@ -371,13 +373,13 @@ setMethod("filterMSn", c(object = "metaMSn"),
                 infoTibble <-
                   lapply(object@MSn, .fun) %>%
                   do.call(bind_rows, args = .) %>%
-                  dplyr::filter(Rank <= 20)
+                  dplyr::filter(iRank <= 20)
               } else{
                 cat("step 1 start ...\n")
                 infoTibble <-
                   parallel::parLapply(cluster, object@MSn, .fun) %>%
                   do.call(bind_rows, args = .) %>%
-                  dplyr::filter(Rank <= 20)
+                  dplyr::filter(iRank <= 20)
                 cat("step 1 done ...\n")
               }
             }
@@ -385,8 +387,6 @@ setMethod("filterMSn", c(object = "metaMSn"),
 
 # add fragments specificity filter ------------------------------------------------------------
 
-            a <- 0.5
-            b <- 0.5
             tblRaw <-
               infoTibble %>%
               mutate(fMZ = round(mz, 0)) %>%
@@ -394,11 +394,12 @@ setMethod("filterMSn", c(object = "metaMSn"),
 
             tblRank <-
               tblRaw %>%
-              summarise(fRank = n()) %>%
+              summarise(dupNum = n()) %>%
               left_join(tblRaw, .) %>%
-              mutate(wRank = a*fRank-b*Rank) %>%
               group_by(splash) %>%
-              mutate(Ranks = rank(wRank, ties.method = "first"))
+              mutate(
+                sRank = rank(dupNum, ties.method = "first"),
+                Ranks = rank(a*iRank + b*sRank, ties.method = "first"))
 
             xAdduct(
               cls = cluster,
@@ -457,7 +458,7 @@ setMethod("toSkyline", c(infoTibble = "tbl"),
               multiCETbl <-
                   infoTibble %>%
                   dplyr::filter(DeltaMz >= deltaMz) %>%
-                  mutate(CE =ifelse(is.na(CE)|CE=="", 30.1, CE)) %>%
+                  mutate(CE =ifelse(is.na(CE)|CE=="", "30.1", CE)) %>%
                   transmute(
                       `Note` = splash,
                       `Molecule List Name` = Class,
@@ -467,6 +468,7 @@ setMethod("toSkyline", c(infoTibble = "tbl"),
                       `Precursor Charge` = chargeRule[as.character(pCharge)],
                       `Precursor m/z` = PrecursorMz/`Precursor Charge`,
                       `Product m/z` = mz,
+                      `Product intensity` = intensity,
                       `Product Charge` = chargeRule[as.character(Polarity)],
                       `Explicit Retention Time` = round(RTs/60,2),
                       # `Product Name` =  round(PrecursorMz,2),
@@ -481,12 +483,13 @@ setMethod("toSkyline", c(infoTibble = "tbl"),
                       InChiKey, pattern = "[:upper:]+[-][:upper:]+[-][:upper:]")
                       )
 
+              grp.rm <- grep("Precursor Name",names(multiCETbl),fixed = T)
               multiCETbl_u <-
                 multiCETbl  %>%
-                group_by(!!!lapply(names(multiCETbl)[-3], as.symbol)) %>%
+                group_by(!!!lapply(
+                  names(multiCETbl)[- grp.rm], as.symbol)) %>%
                 summarise(`Precursor Name` = first(`Precursor Name`))
 
-              # xxx <-
               multiCETbl_u %>%
                 group_by(`Note`, `InChiKey`) %>%
                   summarise(CEBest = n()) %>%
@@ -720,13 +723,6 @@ setMethod("cleanMSn", c(mz = "matrix", tol = "numeric"), function(mz, tol){
 })
 
 
-# mz <- rnorm(20, 50,10) %>% sort()
-# it <- rep(20:1)
-# spectra <- matrix( c(mz,it), ncol = 2)
-# cleanMSn(mz=spectra, tol = 3)
-# plot(spectra, type="h")
-#
-# points(cleanMSn(mz=spectra, tol = 1)+0.1,type="h",col=2)
 
 setGeneric("cleanMSn.iter", function(mz,tol,echo = F) standardGeneric("cleanMSn.iter"))
 setMethod("cleanMSn.iter", c(mz = "matrix", tol = "numeric"), function(mz, tol, echo = F) {
@@ -740,7 +736,6 @@ setMethod("cleanMSn.iter", c(mz = "matrix", tol = "numeric"), function(mz, tol, 
 
     return(mz)
 })
-
 
 
 
@@ -776,11 +771,12 @@ mspPreFilter <- function(x = range_idx["1"], lib_vct = lib) {
 
 # intersection of full-MS and Library ---------------------------------------------------------
 
-#' Title
+#' intersection of full-MS and Library
 #'
-#' @param ms cross ms to db by ppm
-#' @param db db tibble
+#' @param MS cross ms to db by ppm
+#' @param DB db tibble
 #' @param tol mz tolerance ppm
+#' @param N segment size
 #'
 #' @return filtered db tibble
 #' @export NULL
@@ -839,7 +835,6 @@ setMethod("xMStoDB", c( MS = "data.frame",DB = "data.frame",tol = "numeric",N = 
           })
 
 # summary mspList ---------------------------------------------------------
-setGeneric("summary", function(x = 'list') standardGeneric("summary"))
 
 
 # de-duplicate transitions --------------------------------------------------------------------
@@ -895,23 +890,369 @@ mergeOverlap <- function(traTbl, RTw = 2) {
 
 
 
+# convert skylineTransition to DB.msp -------------------------------------
+
+#' convert skylineTransition to DB.msp
+#'
+#' @param X retruned by traTbl_join %>% toSkyline()
+#' @param File file dir to save
+#' @param overWrite if overwrite exist .msp file
+#'
+#' @return NULL
+#' @export NULL
+#'
+#' @examples NULL
+toSkylineDB <- function(X, File = "./skyline-db.msp", overWrite = T) {
+  tra_list <- X %>% unique() %>% split.data.frame(f = .$InChiKey)
+  if(overWrite & file.exists(File)){
+    file.remove(File)
+  }
+  for (i in tra_list) {
+    paste(
+      sprintf("Name: %s\n", i$`Precursor Name`[1]),
+      sprintf("InChIKey: %s\n", i$InChiKey[1]),
+      sprintf("Precursor_type: %s\n", i$`Precursor Adduct`[1]),
+      sprintf("Spectrum_type: %s\n", 2),
+      sprintf("PrecursorMZ: %s\n", i$`Precursor m/z`[1]),
+      sprintf("Ion_mode: %s\n", ""),
+      sprintf("Collision_energy: %s\n", i$`Explicit Collision Energy`[1]),
+      sprintf("Formula: %s\n", i$`Precursor Formula`[1]),
+      sprintf("Num Peaks: %s\n", nrow(i)),
+      sprintf("%.4f\t%.4f\n", i$`Product m/z`, i$`Product intensity`) %>% paste(collapse = ""),
+      "\n",
+      sep = "",
+      collapse = ""
+    ) %>% write_file(path = File, append = T)
+  }
+}
 
 
+# batch function MRMlib ---------------------------------------------------
+setClass(
+  "MRMlibrary",
+  slots = c(
+    RSQLite = "SQLiteConnection",
+    param = "list",
+    traTbl = "tbl",
+    traTbl_join = "tbl",
+    tra_list = "list",
+    peak = "data.frame",
+    xDB = "tbl",
+    skylineTra = "tbl"
+  )
+)
+
+MRMlib <- function(
+  peak = peak0,
+  paraN = 8,
+  raw_msp = "~/R/DB/Plant.msp",
+  infoDir = "~/R/DB/DBraw/",
+  DIR = getwd(),
+  SQLiteName = "20180904",
+  mspParser.nbTol = 0.8,
+  mspParser.mz_tol = 0.01,
+  mspParser.mz_only = T,
+  mspParser.ignoreInt = F,
+  filterMSn.topX = 5,
+  filterMSn.a = 0.5,
+  filterMSn.b = 0.5,
+  filterMSn.type = "local",
+  xMStoDB.tol = 5,
+  xMStoDB.N = 8000,
+  toSkyline.deltaMz = 12,
+  mergeOverlap.RTw = 2) {
+
+  require(tidyverse)
+  require(stringi)
+  require(ChemmineR)
+  require(MSnbase)
+  require(MRMlib)
+  require(RSQLite)
+  require(dbplyr)
+
+  message("New MRMlibrary class ...")
+  obj <- new(Class = "MRMlibrary")
+  cl <- makeCluster(paraN)
+
+  # parameters --------------------------------------------------------------
+
+  if (!dir.exists(DIR)) {dir.create(DIR)}
+
+  SQLiteDir <- sprintf("%s/%s.sqlite", DIR, SQLiteName)
+  tra.msp <- sprintf("%s/skyline.msp", DIR)
+  tra.csv <- sprintf("%s/MRMtransition", DIR)
+  msp_list.rsd <- sprintf("%s/msp_list.rds", DIR)
+
+  obj@param <- list(
+    paraN = paraN,
+    raw_msp = raw_msp,
+    DIR = DIR,
+    SQLiteName = SQLiteName,
+    mspParser.nbTol = mspParser.nbTol,
+    mspParser.mz_tol = mspParser.mz_tol,
+    mspParser.mz_only = mspParser.mz_only,
+    mspParser.ignoreInt = mspParser.ignoreInt,
+    filterMSn.topX = filterMSn.topX,
+    filterMSn.a = filterMSn.a,
+    filterMSn.b = filterMSn.b,
+    filterMSn.type = filterMSn.type,
+    xMStoDB.tol = xMStoDB.tol,
+    xMStoDB.N = xMStoDB.N,
+    toSkyline.deltaMz = toSkyline.deltaMz,
+    mergeOverlap.RTw = mergeOverlap.RTw
+  )
+
+  # main --------------------------------------------------------------------
+
+  obj@RSQLite <-  dbConnect(RSQLite::SQLite(), SQLiteDir)
+
+  # load from SQLite --------------------------------------------------------
+  if (db_has_table(obj@RSQLite, "hmdbInfo")) {
+    hmdbInfo_list <- tbl(obj@RSQLite, "hmdbInfo") %>% as_tibble()
+    initInfo_list <- tbl(obj@RSQLite, "initInfo") %>% as_tibble()
+    message("load existing info table ...")
+  } else{
+    # load raw DB infos -------------------------------------------------------
+    env <- new.env()
+
+    hmdbInfo <-
+      load(dir(
+        path = infoDir,
+        full.names = T,
+        pattern = "hmdbInfo.QT"
+      ), env)
+
+    matchIdx <-
+      load(dir(
+        path = infoDir,
+        full.names = T,
+        pattern = "initalMatch2HmdbIndex.QT"
+      ), env)
+
+    initInfo <-
+      load(dir(
+        path = infoDir,
+        full.names = T,
+        pattern = "initalInfo.QT"
+      ), env)
+
+    hmdbInfo_list <- lapply(hmdbInfo, function(x) {
+      as.name(x) %>% eval(envir = env)
+    })
+    names(hmdbInfo_list) <- hmdbInfo
+
+    matchIdx_list <- lapply(matchIdx, function(x) {
+      as.name(x) %>% eval(envir = env)
+    })
+    names(matchIdx_list) <- matchIdx
+
+    initInfo_list <- lapply(initInfo, function(x) {
+      as.name(x) %>% eval(envir = env)
+    })
+    names(initInfo_list) <- initInfo
+
+    initInfo_list <-
+      as_tibble(initInfo_list) %>% bind_cols(matchIdx_list, .)
+    hmdbInfo_list <-
+      as_tibble(hmdbInfo_list) %>% mutate(IDX = seq(nrow(.)))
+
+    # SQlite DB ---------------------------------------------------------------
+    message("writing info lists ...")
+    dbWriteTable(obj@RSQLite,
+                 name = 'hmdbInfo',
+                 hmdbInfo_list,
+                 overwrite = T)
+    dbWriteTable(obj@RSQLite,
+                 name = 'initInfo',
+                 initInfo_list,
+                 overwrite = T)
+  }
+
+  # save msp_list to DB -----------------------------------------------------
+  if (file.exists(msp_list.rsd)) {
+    message("loading existing msp_list ...")
+    msp_list <- readRDS(file = msp_list.rsd)
+  } else{
+    message("new msp_list ...")
+    lib <- read_lines(file = raw_msp)
+    begin_idx <-
+      grep(
+        pattern = "BEGIN",
+        ignore.case = F,
+        fixed = T,
+        x = lib
+      )
+    end_idx <-
+      grep(
+        pattern = "END",
+        ignore.case = F,
+        fixed = T,
+        x = lib
+      )
+
+    range_idx <-
+      tibble(start = begin_idx + 1,
+             end = end_idx - 1,
+             idx = seq_along(end_idx)) %>%
+      split.data.frame(f = .$idx)
 
 
+    # mspParser.nbTol = 0.8
+    # mspParser.mz_tol = 0.01
+    # mspParser.mz_only = T
+    # mspParser.ignoreInt = F
 
+    msp_list <-
+      parLapply(
+        cl,
+        range_idx,
+        mspParser,
+        lib_vct = lib,
+        nbTol = mspParser.nbTol,
+        mz_tol = mspParser.mz_tol,
+        mz_only = mspParser.mz_only,
+        ignoreInt = mspParser.ignoreInt
+      )
+    msp_list <- parLapply(
+      cl,
+      msp_list,
+      fun = function(x) {
+        if (x$precursorType == "" | is.null(x$precursorType)) {
+          if (x$polarity == "" | is.null(x$polarity)) {
+            x$polarity <- "+"
+            cat(x$formula)
+          }
+          x$precursorType <-
+            sprintf("[M%sH]%s", x$polarity, x$polarity)
+        }
+        return(x)
+      }
+    )
 
+    message("OK, saving msp_list ...")
+    saveRDS(msp_list, file = msp_list.rsd)
+  }
 
+  # traTbl ------------------------------------------------------------------
+  if (db_has_table(obj@RSQLite, "traTbl")) {
+    message("loading existing tarTbl ...")
+    traTbl <- tbl(obj@RSQLite, "tarTbl") %>% as_tibble()
+  } else {
+    message("new tarTbl ...")
+    metaMsn_i <- new('metaMSn', MSn = msp_list)
 
+    # filterMSn.topX = 5
+    # filterMSn.a = 0.5
+    # filterMSn.b = 0.5
+    # filterMSn.type = "local"
 
+    traTbl <-
+      filterMSn(
+        object = metaMsn_i,
+        topX = filterMSn.topX,
+        type = filterMSn.type,
+        a = filterMSn.a,
+        b = filterMSn.b,
+        cluster = cl
+      )
+    message("writing traTbl ...")
+    dbWriteTable(obj@RSQLite, "tarTbl", traTbl, overwrite = T)
+  }
 
+  if (db_has_table(obj@RSQLite, "traTbl_join")) {
+    message("loading existing traTbl_join ...")
+    traTbl_join <- tbl(obj@RSQLite, "traTbl_join") %>% as_tibble()
+  } else {
+    message("new traTbl_join ...")
+    traTbl_join <- traTbl %>% as_tibble() %>%
+      left_join(., initInfo_list, by = c("splash" = "splash10")) %>%
+      left_join(., hmdbInfo_list, by = c("match2HmdbIndex" = "IDX")) %>%
+      dplyr::filter(ExactMass - PrecursorMz < 2) %>%
+      dplyr::filter(!stri_detect(Formula, regex = "[D]")) %>%
+      dplyr::filter(Polarity == "+")
+    message("writing traTbl_join ...")
+    dbWriteTable(obj@RSQLite, "traTbl_join", traTbl_join, overwrite = T)
 
+  }
 
+  if (db_has_table(obj@RSQLite, "peak") & is.null(peak)) {
+    message("loading existing peak ...")
+    peak <- tbl(obj@RSQLite, "peak") %>% as_tibble()
+  } else{
+    message("use external peak ...")
+    dbWriteTable(obj@RSQLite, "peak", peak, overwrite = T)
+  }
 
+  # cross DB and DATA -------------------------------------------------------
+  # xMStoDB.tol = 5
+  # xMStoDB.N = 8000
+  # toSkyline.deltaMz = 12
+  if (db_has_table(obj@RSQLite, "xDB")) {
+    message("loading existing xDB ...")
+    xDB <- tbl(obj@RSQLite, "xDB") %>% as_tibble()
+  } else {
+    message("new xDB ...")
+    xDB <-
+      xMStoDB(
+        MS = peak,
+        DB = traTbl_join,
+        tol = xMStoDB.tol,
+        N = xMStoDB.N
+      )
 
+    message("writing xDB ...")
+    dbWriteTable(obj@RSQLite, "xDB", xDB, overwrite = T)
+  }
 
+  skylineTra <-
+    toSkyline(infoTibble = xDB, deltaMz = toSkyline.deltaMz) %>% unique()
 
+  # write to skyline DB.msp -------------------------------------------------
+  if (db_has_table(obj@RSQLite, "tra_list")) {
+    message("loading existing tra_list ...")
+    tra_list <- tbl(obj@RSQLite, "tra_list") %>% as_tibble()
+    message("writing tra.msp file ...")
+    toSkylineDB(X = tra_list,
+                overWrite = T,
+                File = tra.msp)
+  } else {
+    message("new tra_list ...")
+    tra_list <- traTbl_join %>% toSkyline(deltaMz = 12)
+    message("writing tra.msp file ...")
+    toSkylineDB(X = tra_list,
+                overWrite = T,
+                File = tra.msp)
+    dbWriteTable(obj@RSQLite, "tra_list", tra_list, overwrite = T)
+  }
 
+  # write to transition table -----------------------------------------------
+  # mergeOverlap.RTw = 2
 
+  skylineTra_2 <-
+    skylineTra %>%
+    split.data.frame(f = .$InChiKey) %>%
+    lapply(FUN = mergeOverlap, RTw = mergeOverlap.RTw) %>%
+    bind_rows() %>%
+    mutate(`Precursor Name` = paste(`Precursor Name`,
+                                    `Explicit Retention Time`,
+                                    sep ="--"))
 
+  write_csv(
+    skylineTra_2 %>% select(-InChiKey),
+    append = F,
+    path = sprintf("%s-%s.csv", tra.csv, Sys.Date())
+  )
+  message("All done ...")
+  stopCluster(cl)
+
+  # return MRMlib object ----------------------------------------------------
+
+  obj@traTbl <- traTbl
+  obj@traTbl_join <- traTbl_join
+  obj@tra_list <- tra_list
+  obj@xDB <- xDB
+  obj@peak <- peak0
+  obj@skylineTra <- skylineTra
+  return(obj)
+}
 

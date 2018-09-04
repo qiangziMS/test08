@@ -4,7 +4,8 @@
 \alias{find_isotopes}
 \title{Find isotope proportion list}
 \usage{
-find_isotopes(i, mz_x, mz_tol, binMz = 0.5, mz_only = T, predictedIso)
+find_isotopes(i, mz_x, mz_tol = 0.1, binMz = 0.5, mz_only = T,
+  ignoreInt = T, predictedIso)
 }
 \arguments{
 \item{i}{The i-th product ion, i <= N}
