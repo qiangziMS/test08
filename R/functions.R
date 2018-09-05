@@ -938,8 +938,12 @@ setClass(
     tra_list = "list",
     peak = "data.frame",
     xDB = "tbl",
+<<<<<<< HEAD
     skylineTra = "tbl",
     skylineTra_mergeRT = "tbl"
+=======
+    skylineTra = "tbl"
+>>>>>>> d44a169e6f05f3a738e62b343a555bfe41510416
   )
 )
 
@@ -1254,7 +1258,10 @@ MRMlib <- function(
   obj@xDB <- xDB
   obj@peak <- peak0
   obj@skylineTra <- skylineTra
+<<<<<<< HEAD
   obj@skylineTra_mergeRT <- skylineTra_2
+=======
+>>>>>>> d44a169e6f05f3a738e62b343a555bfe41510416
   return(obj)
 }
 

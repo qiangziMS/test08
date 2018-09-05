@@ -10,8 +10,11 @@ toSkylineDB(X, File = "./skyline-db.msp", overWrite = T)
 \item{X}{retruned by traTbl_join %>% toSkyline()}
 
 \item{File}{file dir to save}
+<<<<<<< HEAD
 
 \item{overWrite}{if overwrite exist .msp file}
+=======
+>>>>>>> d44a169e6f05f3a738e62b343a555bfe41510416
 }
 \description{
 convert skylineTransition to DB.msp

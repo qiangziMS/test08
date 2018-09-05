@@ -51,6 +51,10 @@ peak0 <-
   getPeaklist() %>%
   filter(!isotopes %>% stri_detect(regex = "[M][+][:digit:]"))
 
+<<<<<<< HEAD
 # dbWriteTable(metaDB, "peak0", peak0, overwrite = T)
+=======
+dbWriteTable(metaDB, "peak0", peak0, overwrite = T)
+>>>>>>> d44a169e6f05f3a738e62b343a555bfe41510416
 
 

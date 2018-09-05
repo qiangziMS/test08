@@ -2,5 +2,10 @@
 .Rhistory
 .RData
 .Ruserdata
+<<<<<<< HEAD
 ./inst/DB/*
 ./data/*
+=======
+inst/DB/*
+data/*
+>>>>>>> d44a169e6f05f3a738e62b343a555bfe41510416
