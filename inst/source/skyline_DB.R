@@ -1,7 +1,14 @@
 
 # batch MRMlib ------------------------------------------------------------
+pos <- dir("~/RD/data-20180905/", pattern = "mzML", full.names = T)[5:6]
+neg <- dir("~/RD/data-20180905/", pattern = "mzML", full.names = T)[2:3]
 
-mlib <- MRMlib(DIR = "./data/")
+peak0 <- xcmsPeak0(Files = neg, Class = "neg", SQLiteName = "neg")
+
+metaDB <- dbConnect(RSQLite::SQLite(), "neg")
+peak0 <- tbl(metaDB, "peak0") %>% as_tibble()
+
+mlib <- MRMlib(peak = peak0, DIR = "~/RD/data-20180921/neg/", polar = "-")
 
 
 # seperate ----------------------------------------------------------------
@@ -56,7 +63,8 @@ initInfo_list <- tbl(metaDB, "initInfo") %>% as_tibble()
 # load msp file -------------------------------------------------------------------------------
 
 # file_raw <- system.file("/DB/Plant.msp", package = "MRMlib")
-file_raw <- "~/R/DB/Plant.msp"
+# file_raw <- "~/R/DB/Plant.msp"
+file_raw <- "~/RD/microbiome/gutMicroBiota_pos.msp"
 lib <- read_lines(file = file_raw)
 begin_idx <- grep(pattern = "BEGIN",ignore.case = F, fixed = T,x = lib)
 end_idx <- grep(pattern = "END",ignore.case = F, fixed = T,x = lib)
@@ -126,6 +134,7 @@ traTbl <- tbl(metaDB, "tarTbl-n0.8-m0.01ig-t5") %>% as_tibble()
 traTbl_join <- traTbl %>% as_tibble() %>%
   left_join(., initInfo_list, by = c("splash" = "splash10")) %>%
   left_join(., hmdbInfo_list, by = c("match2HmdbIndex" = "IDX")) %>%
+  mutate(KEGGid = bestKEGG(KEGG,initialKEGG)) %>%
   dplyr::filter(ExactMass-PrecursorMz < 2) %>%
   dplyr::filter(!stri_detect(Formula, regex = "[D]")) %>%
   dplyr::filter(Polarity == "+")
@@ -137,12 +146,15 @@ dbWriteTable(metaDB, "traTbl_join-n0.8-m0.01ig-t5", traTbl_join, overwrite = T)
 
 # to skyline DB.MSP -------------------------------------------------------
 
-tra_list <- traTbl_join %>% toSkyline(deltaMz = 12)
+tra_list <-
+  traTbl_join %>%
+  toSkyline(deltaMz = 12, grpBy = c("Note","KEGG")) %>%
+  dplyr::select(-InChiKey)
 
-toSkylineDB(X = tra_list, overWrite = T)
+toSkylineDB(X = tra_list, overWrite = T,File = "~/RD/microbiome/microbiome_cpd.msp")
 
 
-
+file.edit('~/RD/microbiome/microbiome_cpd.msp')
 
 
 # +++++++ START from DB +++++++ -------------------------------------------

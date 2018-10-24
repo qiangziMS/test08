@@ -422,10 +422,10 @@ setMethod("filterMSn", c(object = "metaMSn"),
 #' @return transition list table of skyline
 #' @export NULL
 #'
-#' @examples NULL
-setGeneric("toSkyline", function(infoTibble, deltaMz) standardGeneric("toSkyline"))
+#' @examples NULL infoTibble <- tra_list
+setGeneric("toSkyline", function(infoTibble, deltaMz, grpBy = c('Note','InChiKey')) standardGeneric("toSkyline"))
 setMethod("toSkyline", c(infoTibble = "tbl"),
-          function (infoTibble, deltaMz=12) {
+          function (infoTibble, deltaMz=12, grpBy = c('Note','InChiKey')) {
               chargeRule <-
                   c(
                       `-` = -1,
@@ -466,23 +466,22 @@ setMethod("toSkyline", c(infoTibble = "tbl"),
                       `Precursor Formula` = Formula,
                       `Precursor Adduct` = Adduct1,
                       `Precursor Charge` = chargeRule[as.character(pCharge)],
-                      `Precursor m/z` = PrecursorMz/`Precursor Charge`,
+                      `Precursor m/z` = abs(PrecursorMz/`Precursor Charge`),
                       `Product m/z` = mz,
                       `Product intensity` = intensity,
                       `Product Charge` = chargeRule[as.character(Polarity)],
                       `Explicit Retention Time` = round(RTs/60,2),
                       # `Product Name` =  round(PrecursorMz,2),
+                      `KEGG` = KEGGid,
                       `InChiKey` = InChIKey,
                       `Explicit Collision Energy` =
                           stri_extract_all(CE, regex = "[:digit:]+[.]?[:digit:]+") %>%
                           .[[1]] %>%
                           as.numeric() %>%
                           median()
-                  ) %>%
-                  dplyr::filter(stri_detect_regex(
-                      InChiKey, pattern = "[:upper:]+[-][:upper:]+[-][:upper:]")
-                      )
+                  )
 
+              multiCETbl$`Molecule List Name`[is.na(multiCETbl$`Molecule List Name`)] <- "Other"
               grp.rm <- grep("Precursor Name",names(multiCETbl),fixed = T)
               multiCETbl_u <-
                 multiCETbl  %>%
@@ -491,9 +490,9 @@ setMethod("toSkyline", c(infoTibble = "tbl"),
                 summarise(`Precursor Name` = first(`Precursor Name`))
 
               multiCETbl_u %>%
-                group_by(`Note`, `InChiKey`) %>%
+                group_by(!!!lapply(grpBy, as.symbol)) %>%
                   summarise(CEBest = n()) %>%
-                  split.data.frame(f = .$InChiKey) %>%
+                  split.data.frame(f = .[[grpBy[2]]]) %>%
                   lapply(FUN = function(tbl) {
                           tbl[which.max(tbl$CEBest), ]
                       }) %>%
@@ -501,7 +500,7 @@ setMethod("toSkyline", c(infoTibble = "tbl"),
                   left_join(
                       x = .,
                       y = multiCETbl_u,
-                      by = c("InChiKey", "Note")) %>%
+                      by = grpBy) %>%
                   select(-CEBest)
           })
 
@@ -847,7 +846,9 @@ setMethod("xMStoDB", c( MS = "data.frame",DB = "data.frame",tol = "numeric",N = 
 #' @return merged traTbl
 #' @export NULL
 #'
-#' @examples NULL
+#' @examples NA
+#'
+#'
 mergeOverlap <- function(traTbl, RTw = 2) {
 
   traTbl <- mutate(traTbl,
@@ -863,29 +864,32 @@ mergeOverlap <- function(traTbl, RTw = 2) {
     RTw1 <- traTbl$mergeRW[IDX1] %>% unique()
 
     if (i == length(RTs)) {
-
-      traTbl_dedup <-
+      traTbl <-
         traTbl %>%
         mutate(`Explicit Retention Time` = mergeRT,
                `Explicit Retention Time Window` = mergeRW) %>%
-        select(-mergeRT, -mergeRW) %>%
         unique()
-      return(traTbl_dedup)
 
+      # message("Merge overlap RTs  ...")
     } else{
-
       RT0 <- traTbl$mergeRT[IDX0] %>% unique()
       RT1 <- traTbl$mergeRT[IDX1] %>% unique()
-      RT0r <- c(RT0 - RTw0, RT0 + RTw0)
-      RT1r <- c(RT1 - RTw1, RT1 + RTw1)
+      RT0r <- c(RT0 - RTw0/2, RT0 + RTw0/2)
+      RT1r <- c(RT1 - RTw1/2, RT1 + RTw1/2)
       if (RT0r[2] >= RT1r[1]) {
         RTir <- range(c(RT0r, RT1r))
         traTbl$mergeRT[IDX0 | IDX1] <- mean(RTir)
-        traTbl$mergeRW[IDX0 | IDX1] <- diff(RTir) / 2
+        traTbl$mergeRW[IDX0 | IDX1] <- diff(RTir)
         RTs[i:(i+1)] <- mean(RTir)
       }
+      traTbl <-
+        traTbl %>%
+        mutate(`Explicit Retention Time` = mergeRT,
+               `Explicit Retention Time Window` = mergeRW) %>%
+        unique()
     }
   }
+  traTbl %>% select(-mergeRT,-mergeRW)
 }
 
 
@@ -902,15 +906,18 @@ mergeOverlap <- function(traTbl, RTw = 2) {
 #' @export NULL
 #'
 #' @examples NULL
-toSkylineDB <- function(X, File = "./skyline-db.msp", overWrite = T) {
-  tra_list <- X %>% unique() %>% split.data.frame(f = .$InChiKey)
+toSkylineDB <- function(X, File = "./skyline-db.msp", overWrite = T, grpBy = "InChiKey") {
+  tra_list <- X %>% unique() %>% split.data.frame(f = .[[grpBy]])
   if(overWrite & file.exists(File)){
     file.remove(File)
   }
   for (i in tra_list) {
     paste(
+      sprintf("Gene: %s\n", i$`Molecule List Name`[1]),
       sprintf("Name: %s\n", i$`Precursor Name`[1]),
       sprintf("InChIKey: %s\n", i$InChiKey[1]),
+      sprintf("KEGG: %s\n", i$KEGG[1]),
+      sprintf("RetentionTime: %s\n", i$`Explicit Retention Time`[1]),
       sprintf("Precursor_type: %s\n", i$`Precursor Adduct`[1]),
       sprintf("Spectrum_type: %s\n", 2),
       sprintf("PrecursorMZ: %s\n", i$`Precursor m/z`[1]),
@@ -938,22 +945,19 @@ setClass(
     tra_list = "list",
     peak = "data.frame",
     xDB = "tbl",
-<<<<<<< HEAD
     skylineTra = "tbl",
     skylineTra_mergeRT = "tbl"
-=======
-    skylineTra = "tbl"
->>>>>>> d44a169e6f05f3a738e62b343a555bfe41510416
   )
 )
 
 MRMlib <- function(
-  peak = peak0,
+  peak = NULL,
+  polar = "+",
   paraN = 8,
   raw_msp = "~/R/DB/Plant.msp",
   infoDir = "~/R/DB/DBraw/",
   DIR = getwd(),
-  SQLiteName = "20180904",
+  SQLiteName = "MRMlib",
   mspParser.nbTol = 0.8,
   mspParser.mz_tol = 0.01,
   mspParser.mz_only = T,
@@ -981,15 +985,17 @@ MRMlib <- function(
 
   # parameters --------------------------------------------------------------
 
-  if (!dir.exists(DIR)) {dir.create(DIR)}
+  if (!dir.exists(DIR)) {dir.create(DIR, recursive = T)}
 
   SQLiteDir <- sprintf("%s/%s.sqlite", DIR, SQLiteName)
   tra.msp <- sprintf("%s/skyline.msp", DIR)
+  tra.msp.f <- sprintf("%s/skyline-filtered.msp", DIR)
   tra.csv <- sprintf("%s/MRMtransition", DIR)
   msp_list.rsd <- sprintf("%s/msp_list.rds", DIR)
 
   obj@param <- list(
     paraN = paraN,
+    polar = polar,
     raw_msp = raw_msp,
     DIR = DIR,
     SQLiteName = SQLiteName,
@@ -1140,10 +1146,10 @@ MRMlib <- function(
 
   # traTbl ------------------------------------------------------------------
   if (db_has_table(obj@RSQLite, "traTbl")) {
-    message("loading existing tarTbl ...")
-    traTbl <- tbl(obj@RSQLite, "tarTbl") %>% as_tibble()
+    message("loading existing traTbl ...")
+    traTbl <- tbl(obj@RSQLite, "traTbl") %>% as_tibble()
   } else {
-    message("new tarTbl ...")
+    message("new traTbl ...")
     metaMsn_i <- new('metaMSn', MSn = msp_list)
 
     # filterMSn.topX = 5
@@ -1161,7 +1167,7 @@ MRMlib <- function(
         cluster = cl
       )
     message("writing traTbl ...")
-    dbWriteTable(obj@RSQLite, "tarTbl", traTbl, overwrite = T)
+    dbWriteTable(obj@RSQLite, "traTbl", traTbl, overwrite = T)
   }
 
   if (db_has_table(obj@RSQLite, "traTbl_join")) {
@@ -1174,7 +1180,7 @@ MRMlib <- function(
       left_join(., hmdbInfo_list, by = c("match2HmdbIndex" = "IDX")) %>%
       dplyr::filter(ExactMass - PrecursorMz < 2) %>%
       dplyr::filter(!stri_detect(Formula, regex = "[D]")) %>%
-      dplyr::filter(Polarity == "+")
+      dplyr::filter(Polarity == polar)
     message("writing traTbl_join ...")
     dbWriteTable(obj@RSQLite, "traTbl_join", traTbl_join, overwrite = T)
 
@@ -1209,8 +1215,23 @@ MRMlib <- function(
     dbWriteTable(obj@RSQLite, "xDB", xDB, overwrite = T)
   }
 
+
+  alignRT <- function(X){
+    X[X>1&X<2] <- X[X>1&X<2]+0.25
+    X[X>=2] <- X[X>=2]+0.5
+    return(X)
+  }
+
+
   skylineTra <-
-    toSkyline(infoTibble = xDB, deltaMz = toSkyline.deltaMz) %>% unique()
+    toSkyline(infoTibble = xDB, deltaMz = toSkyline.deltaMz) %>% unique() %>%
+    mutate(`Explicit Retention Time` = alignRT(`Explicit Retention Time`))
+
+  write_csv(
+    skylineTra %>% select(-InChiKey, -`Product intensity`),
+    append = F,
+    path = sprintf("%s-%s-raw.csv", tra.csv, Sys.Date())
+  )
 
   # write to skyline DB.msp -------------------------------------------------
   if (db_has_table(obj@RSQLite, "tra_list")) {
@@ -1220,13 +1241,23 @@ MRMlib <- function(
     toSkylineDB(X = tra_list,
                 overWrite = T,
                 File = tra.msp)
+    toSkylineDB(X = skylineTra,
+                overWrite = T,
+                File = tra.msp.f)
+
   } else {
     message("new tra_list ...")
     tra_list <- traTbl_join %>% toSkyline(deltaMz = 12)
+    # tra_list_f <-
     message("writing tra.msp file ...")
+    toSkylineDB(X = skylineTra,
+                overWrite = T,
+                File = tra.msp.f)
+
     toSkylineDB(X = tra_list,
                 overWrite = T,
                 File = tra.msp)
+
     dbWriteTable(obj@RSQLite, "tra_list", tra_list, overwrite = T)
   }
 
@@ -1238,12 +1269,14 @@ MRMlib <- function(
     split.data.frame(f = .$InChiKey) %>%
     lapply(FUN = mergeOverlap, RTw = mergeOverlap.RTw) %>%
     bind_rows() %>%
-    mutate(`Precursor Name` = paste(`Precursor Name`,
+    dplyr::mutate(`Precursor Name` = paste(`Precursor Name`,
                                     `Explicit Retention Time`,
                                     sep ="--"))
 
+   # xxx <-  skylineTra_2[[1]] %>% mergeOverlap(traTbl = ., RTw = 2)
+
   write_csv(
-    skylineTra_2 %>% select(-InChiKey),
+    skylineTra_2 %>% select(-InChiKey, -`Product intensity`),
     append = F,
     path = sprintf("%s-%s.csv", tra.csv, Sys.Date())
   )
@@ -1258,10 +1291,96 @@ MRMlib <- function(
   obj@xDB <- xDB
   obj@peak <- peak0
   obj@skylineTra <- skylineTra
-<<<<<<< HEAD
   obj@skylineTra_mergeRT <- skylineTra_2
-=======
->>>>>>> d44a169e6f05f3a738e62b343a555bfe41510416
   return(obj)
 }
+
+
+
+
+
+# xcmsPeak0 function ------------------------------------------------------
+
+
+xcmsPeak0 <-
+  function(Files = NULL,
+           DIR = "~/RD/data-20180905/",
+           Class,
+           SQLiteName = NULL) {
+    require(xcms)
+    require(CAMERA)
+    # files <- dir("E://raw/PRM/", full.names = T)
+    if (is.null(Files)) {
+      files <- dir(DIR, full.names = T, pattern = "mzML|mzXML")
+    } else{
+      files <- Files
+    }
+
+    if (Sys.info()["sysname"] == "Windows") {
+      parN <- SnowParam(8)
+    } else{
+      parN <- MulticoreParam(8)
+    }
+
+    xSet <-
+      xcmsSet(
+        files = files,
+        sclass = rep(Class, length(files)),
+        method = "centWave",
+        ppm = 20,
+        noise = 1000,
+        snthresh = 100,
+        prefilter = c(3, 1000),
+        BPPARAM = parN,
+        fitgauss = T,
+        integrate = 1,
+        peakwidth = c(10, 30)
+      )
+
+    xSet <-
+      retcor(
+        xSet,
+        method = "obiwarp",
+        plottype = c("none", "deviation"),
+        profStep = 0.02,
+        # center = NULL,
+        col = NULL,
+        ty = NULL,
+        response = 1,
+        distFunc = "cor_opt",
+        gapInit = NULL,
+        gapExtend = NULL,
+        # factorDiag = 2,
+        # factorGap = 2,
+        localAlignment = 0,
+        initPenalty = 0
+      )
+
+    peakRaw <-
+      group(
+        xSet,
+        method = "density",
+        minfrac = 0.5,
+        bw = 20,
+        mzwid = 0.015,
+        minsamp = 1
+      )
+    peak0 <-
+      xsAnnotate(peakRaw) %>%
+      groupFWHM() %>%
+      groupCorr() %>%
+      findIsotopes(minfrac = 0.5, ppm = 5) %>%
+      getPeaklist() %>%
+      filter(!isotopes %>% stri_detect(regex = "[M][+][:digit:]"))
+
+    if (is.null(SQLiteName)) {
+      metaDB <- dbConnect(RSQLite::SQLite(), "xcmsPeak0")
+    } else{
+      metaDB <- dbConnect(RSQLite::SQLite(), SQLiteName)
+    }
+
+    dbWriteTable(metaDB, "peak0", peak0, overwrite = T)
+    return(peak0)
+  }
+
 

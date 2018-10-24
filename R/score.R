@@ -48,7 +48,7 @@ MRMpeaks <- function(x = mrm()[[2]], scales, sn = 0) {
       )
     if (!dev.interactive()) {
       # dev.new()
-      plot(rep(0, length(x)), type = "l", ylim = c(0, 2))
+      # plot(rep(0, length(x)), type = "l", ylim = c(0, 2))
     }
     points(x,type="l",col=sample(1:10,1))
     betterPeakInfo <-
@@ -56,7 +56,7 @@ MRMpeaks <- function(x = mrm()[[2]], scales, sn = 0) {
     betterPeakInfo[1:5] %>% as_tibble()
   }
 # plot(rep(0,250),type="l",ylim=c(0,2))
-peakList <- lapply(mrm(3), MRMpeaks, scales = 1:12, sn = 0) %>% bind_rows()
+# peakList <- lapply(mrm(3), MRMpeaks, scales = 1:12, sn = 0) %>% bind_rows()
 
 
 
